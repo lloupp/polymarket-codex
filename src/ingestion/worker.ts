@@ -29,6 +29,7 @@ type IngestionWorkerOptions = {
   clob: ClobLike;
   realtime: RealtimeLike;
   saveSnapshot: (entry: unknown) => Promise<void>;
+  onError?: (error: Error) => Promise<void> | void;
 };
 
 export class IngestionWorker {
@@ -37,6 +38,7 @@ export class IngestionWorker {
   private readonly clob: ClobLike;
   private readonly realtime: RealtimeLike;
   private readonly saveSnapshot: (entry: unknown) => Promise<void>;
+  private readonly onError: ((error: Error) => Promise<void> | void) | undefined;
 
   private timer: NodeJS.Timeout | null = null;
   private checkpoint: string | null = null;
@@ -52,16 +54,23 @@ export class IngestionWorker {
     this.clob = options.clob;
     this.realtime = options.realtime;
     this.saveSnapshot = options.saveSnapshot;
+    this.onError = options.onError;
   }
 
   start(): void {
     this.realtime.setMessageHandler(async (message) => {
-      await this.handleStreamMessage(message);
+      try {
+        await this.handleStreamMessage(message);
+      } catch (error) {
+        await this.reportError(error);
+      }
     });
     this.realtime.connect();
 
     this.timer = setInterval(() => {
-      void this.pollOnce();
+      void this.pollOnce().catch(async (error) => {
+        await this.reportError(error);
+      });
     }, this.pollIntervalMs);
   }
 
@@ -118,5 +127,14 @@ export class IngestionWorker {
     const tick = normalizeTradeTick(payload);
     await this.saveSnapshot({ type: 'trade_tick', payload: tick });
     this.metrics.snapshotsPersisted += 1;
+  }
+
+  private async reportError(error: unknown): Promise<void> {
+    if (!this.onError) {
+      return;
+    }
+
+    const wrapped = error instanceof Error ? error : new Error(String(error));
+    await this.onError(wrapped);
   }
 }

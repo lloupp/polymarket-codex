@@ -1,0 +1,1 @@
+drop index if exists ux_orderbook_snapshots_market_token_time;

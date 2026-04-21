@@ -9,3 +9,5 @@ Projeto inicial em TypeScript + Node.js (Express) para construção da ferrament
 - `npm run start`: executa build compilado
 - `npm run lint`: executa lint
 - `npm run test`: executa testes unitários iniciais
+- `npm run migration:up`: aplica migrations SQL em `config/migrations`
+- `npm run migration:down`: rollback completo das migrations aplicadas

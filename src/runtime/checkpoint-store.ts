@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -25,6 +26,24 @@ function isRuntimeSnapshot(input: unknown): input is RuntimeSnapshot {
   );
 }
 
+type CheckpointEnvelope = {
+  snapshot: RuntimeSnapshot;
+  checksum: string;
+};
+
+function checksumForSnapshot(snapshot: RuntimeSnapshot): string {
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+}
+
+function isCheckpointEnvelope(input: unknown): input is CheckpointEnvelope {
+  if (typeof input !== 'object' || input === null) {
+    return false;
+  }
+
+  const value = input as Record<string, unknown>;
+  return typeof value.checksum === 'string' && isRuntimeSnapshot(value.snapshot);
+}
+
 export class RuntimeCheckpointStore {
   private readonly filePath: string;
   private readonly backupFilePath: string;
@@ -37,7 +56,11 @@ export class RuntimeCheckpointStore {
   }
 
   async persist(snapshot: RuntimeSnapshot): Promise<void> {
-    const payload = JSON.stringify(snapshot, null, 2);
+    const envelope: CheckpointEnvelope = {
+      snapshot,
+      checksum: checksumForSnapshot(snapshot)
+    };
+    const payload = JSON.stringify(envelope, null, 2);
     const directory = path.dirname(this.filePath);
     const tempPath = `${this.filePath}.tmp`;
 
@@ -52,14 +75,26 @@ export class RuntimeCheckpointStore {
       const content = await fs.readFile(targetPath, 'utf8');
       const parsed = JSON.parse(content) as unknown;
 
-      if (!isRuntimeSnapshot(parsed)) {
-        this.logger?.warn('runtime checkpoint schema invalid; ignoring restore', {
-          filePath: targetPath
-        });
-        return null;
+      if (isRuntimeSnapshot(parsed)) {
+        return parsed;
       }
 
-      return parsed;
+      if (isCheckpointEnvelope(parsed)) {
+        const expected = checksumForSnapshot(parsed.snapshot);
+        if (parsed.checksum !== expected) {
+          this.logger?.warn('runtime checkpoint checksum mismatch; ignoring restore', {
+            filePath: targetPath
+          });
+          return null;
+        }
+
+        return parsed.snapshot;
+      }
+
+      this.logger?.warn('runtime checkpoint schema invalid; ignoring restore', {
+        filePath: targetPath
+      });
+      return null;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException | undefined)?.code;
       if (code === 'ENOENT') {

@@ -35,6 +35,8 @@ export type ExecutionGatewayStatus = {
   effectiveMode: ExecutionMode | 'blocked';
   liveEnabled: boolean;
   killSwitch: boolean;
+  failoverLocked: boolean;
+  failoverCount: number;
   blockedReason?: 'live_not_enabled' | 'kill_switch_forced_paper' | 'auto_failover_live_error';
   lastFailoverAt?: string;
   lastFailoverReason?: string;
@@ -44,6 +46,8 @@ export class ExecutionGateway {
   private mode: ExecutionMode;
   private liveEnabled: boolean;
   private killSwitch: boolean;
+  private failoverLocked: boolean;
+  private failoverCount: number;
   private readonly paperExecutor: ExecutionFn;
   private readonly liveExecutor: ExecutionFn;
   private readonly autoFailoverToPaperOnLiveError: boolean;
@@ -56,6 +60,8 @@ export class ExecutionGateway {
     this.mode = config.mode;
     this.liveEnabled = config.liveEnabled;
     this.killSwitch = config.killSwitch ?? false;
+    this.failoverLocked = false;
+    this.failoverCount = 0;
     this.paperExecutor = config.paperExecutor;
     this.liveExecutor = config.liveExecutor;
     this.autoFailoverToPaperOnLiveError = config.autoFailoverToPaperOnLiveError ?? false;
@@ -81,6 +87,18 @@ export class ExecutionGateway {
     this.killSwitch = killSwitch;
   }
 
+  resetFailoverLock(): void {
+    if (!this.failoverLocked) {
+      return;
+    }
+
+    this.failoverLocked = false;
+    this.killSwitch = false;
+    if (this.lastBlockedReason === 'auto_failover_live_error') {
+      this.lastBlockedReason = undefined;
+    }
+  }
+
   async execute(intent: ExecutionIntent): Promise<ExecutionResult> {
     this.lastBlockedReason = undefined;
 
@@ -100,6 +118,8 @@ export class ExecutionGateway {
       } catch (error) {
         if (this.autoFailoverToPaperOnLiveError && this.isCriticalLiveError(error)) {
           this.killSwitch = true;
+          this.failoverLocked = true;
+          this.failoverCount += 1;
           this.lastBlockedReason = 'auto_failover_live_error';
           this.lastFailoverAt = new Date().toISOString();
           this.lastFailoverReason = error instanceof Error ? error.message : String(error);
@@ -118,6 +138,8 @@ export class ExecutionGateway {
         effectiveMode: 'blocked',
         liveEnabled: this.liveEnabled,
         killSwitch: this.killSwitch,
+        failoverLocked: this.failoverLocked,
+        failoverCount: this.failoverCount,
         blockedReason: this.lastBlockedReason,
         lastFailoverAt: this.lastFailoverAt,
         lastFailoverReason: this.lastFailoverReason
@@ -130,6 +152,8 @@ export class ExecutionGateway {
         effectiveMode: 'paper',
         liveEnabled: this.liveEnabled,
         killSwitch: this.killSwitch,
+        failoverLocked: this.failoverLocked,
+        failoverCount: this.failoverCount,
         blockedReason: this.lastBlockedReason ?? 'kill_switch_forced_paper',
         lastFailoverAt: this.lastFailoverAt,
         lastFailoverReason: this.lastFailoverReason
@@ -141,6 +165,8 @@ export class ExecutionGateway {
       effectiveMode: this.mode,
       liveEnabled: this.liveEnabled,
       killSwitch: this.killSwitch,
+      failoverLocked: this.failoverLocked,
+      failoverCount: this.failoverCount,
       blockedReason: this.lastBlockedReason,
       lastFailoverAt: this.lastFailoverAt,
       lastFailoverReason: this.lastFailoverReason

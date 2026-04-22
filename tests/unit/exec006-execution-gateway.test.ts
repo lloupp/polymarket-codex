@@ -185,6 +185,31 @@ test('LIVE-003: erro live não crítico não deve acionar failover automático',
   assert.deepEqual(calls, ['live', 'live']);
 });
 
+test('LIVE-004: failover crítico deve travar lock até reset explícito e contar ocorrências', async () => {
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    autoFailoverToPaperOnLiveError: true,
+    paperExecutor: async () => ({ fillId: 'paper-fallback', executedPrice: 0.5, executedSize: 10 }),
+    liveExecutor: async () => {
+      throw new Error('critical connector failure');
+    }
+  });
+
+  await assert.rejects(() => gateway.execute(makeIntent()), /critical connector failure/);
+
+  const lockedStatus = gateway.getStatus();
+  assert.equal(lockedStatus.failoverLocked, true);
+  assert.equal(lockedStatus.failoverCount, 1);
+  assert.equal(lockedStatus.blockedReason, 'auto_failover_live_error');
+
+  gateway.resetFailoverLock();
+
+  const resetStatus = gateway.getStatus();
+  assert.equal(resetStatus.failoverLocked, false);
+  assert.equal(resetStatus.failoverCount, 1);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

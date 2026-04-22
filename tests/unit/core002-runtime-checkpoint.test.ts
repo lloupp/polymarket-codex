@@ -72,3 +72,36 @@ test('CORE-003: restore deve usar backup quando checkpoint principal estiver cor
   assert.equal(restored?.orders[0]?.orderId, 'o-backup');
   assert.equal(restored?.positions[0]?.marketId, 'm-backup');
 });
+
+test('CORE-004: checksum inválido no principal deve forçar restore pelo backup íntegro', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-integrity-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    positions: [{ marketId: 'm-ok', size: 3 }],
+    orders: [{ orderId: 'o-ok', status: 'open' }],
+    signals: [{ signalId: 's-ok', edge: 0.03 }],
+    risk: { status: 'ok', breaker: { tripped: false } }
+  });
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  await checkpoint.persist(await store.getSnapshot());
+
+  const tampered = JSON.parse(fs.readFileSync(checkpointPath, 'utf8')) as {
+    checksum?: string;
+    snapshot?: { orders?: Array<{ orderId?: string }> };
+  };
+
+  assert.equal(typeof tampered.checksum, 'string');
+  assert.equal(typeof tampered.snapshot, 'object');
+
+  if (tampered.snapshot?.orders?.[0]) {
+    tampered.snapshot.orders[0].orderId = 'o-tampered';
+  }
+
+  fs.writeFileSync(checkpointPath, JSON.stringify(tampered, null, 2));
+
+  const restored = await checkpoint.restore();
+  assert.equal(restored?.orders[0]?.orderId, 'o-ok');
+});

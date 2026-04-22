@@ -9,6 +9,8 @@ export type ApiDataProvider = {
   getOrders: () => Promise<unknown[]>;
   getSignals: () => Promise<unknown[]>;
   getRisk: () => Promise<Record<string, unknown>>;
+  getCycles: () => Promise<unknown[]>;
+  getEvents: () => Promise<unknown[]>;
 };
 
 export type CreateAppInput = {
@@ -27,7 +29,9 @@ function buildStateStoreProvider(stateStore: RuntimeStateStore): ApiDataProvider
     getPositions: async () => (await stateStore.getSnapshot()).positions,
     getOrders: async () => (await stateStore.getSnapshot()).orders,
     getSignals: async () => (await stateStore.getSnapshot()).signals,
-    getRisk: async () => (await stateStore.getSnapshot()).risk
+    getRisk: async () => (await stateStore.getSnapshot()).risk,
+    getCycles: async () => [],
+    getEvents: async () => []
   };
 }
 
@@ -39,7 +43,9 @@ const fallbackProvider: ApiDataProvider = {
     breaker: { tripped: false },
     limits: {},
     status: 'ok'
-  })
+  }),
+  getCycles: async () => [],
+  getEvents: async () => []
 };
 
 function unauthorized(res: express.Response): void {
@@ -59,7 +65,9 @@ export function createApp(input: CreateAppInput = {}) {
     getPositions: input.provider?.getPositions ?? baseProvider.getPositions,
     getOrders: input.provider?.getOrders ?? baseProvider.getOrders,
     getSignals: input.provider?.getSignals ?? baseProvider.getSignals,
-    getRisk: input.provider?.getRisk ?? baseProvider.getRisk
+    getRisk: input.provider?.getRisk ?? baseProvider.getRisk,
+    getCycles: input.provider?.getCycles ?? baseProvider.getCycles,
+    getEvents: input.provider?.getEvents ?? baseProvider.getEvents
   };
 
   app.get('/health', (_req, res) => {
@@ -93,6 +101,24 @@ export function createApp(input: CreateAppInput = {}) {
     try {
       const signals = await provider.getSignals();
       res.status(200).json({ signals });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/cycles', async (_req, res, next) => {
+    try {
+      const cycles = await provider.getCycles();
+      res.status(200).json({ cycles });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/events', async (_req, res, next) => {
+    try {
+      const events = await provider.getEvents();
+      res.status(200).json({ events });
     } catch (error) {
       next(error);
     }

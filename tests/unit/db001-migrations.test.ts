@@ -44,8 +44,10 @@ test('DB-001: deve aplicar migration criando tabelas e indices esperados', async
     .map((row: { table_name: string }) => row.table_name);
 
   assert.deepEqual(tables, [
+    'cycle_runs',
     'ingestion_runs',
     'markets',
+    'operational_events',
     'orderbook_snapshots',
     'schema_migrations',
     'trade_ticks'

@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { MetricsRegistry } from './monitoring/metrics-registry';
+import { RuntimeStateStore } from './runtime/state-store';
 
 export type ApiDataProvider = {
   getPositions: () => Promise<unknown[]>;
@@ -13,9 +14,19 @@ export type CreateAppInput = {
   startedAt?: Date;
   metrics?: MetricsRegistry;
   provider?: Partial<ApiDataProvider>;
+  stateStore?: RuntimeStateStore;
 };
 
-const defaultProvider: ApiDataProvider = {
+function buildStateStoreProvider(stateStore: RuntimeStateStore): ApiDataProvider {
+  return {
+    getPositions: async () => (await stateStore.getSnapshot()).positions,
+    getOrders: async () => (await stateStore.getSnapshot()).orders,
+    getSignals: async () => (await stateStore.getSnapshot()).signals,
+    getRisk: async () => (await stateStore.getSnapshot()).risk
+  };
+}
+
+const fallbackProvider: ApiDataProvider = {
   getPositions: async () => [],
   getOrders: async () => [],
   getSignals: async () => [],
@@ -31,11 +42,13 @@ export function createApp(input: CreateAppInput = {}) {
   const startedAt = input.startedAt ?? new Date();
   const metrics = input.metrics ?? new MetricsRegistry();
 
+  const baseProvider = input.stateStore ? buildStateStoreProvider(input.stateStore) : fallbackProvider;
+
   const provider: ApiDataProvider = {
-    getPositions: input.provider?.getPositions ?? defaultProvider.getPositions,
-    getOrders: input.provider?.getOrders ?? defaultProvider.getOrders,
-    getSignals: input.provider?.getSignals ?? defaultProvider.getSignals,
-    getRisk: input.provider?.getRisk ?? defaultProvider.getRisk
+    getPositions: input.provider?.getPositions ?? baseProvider.getPositions,
+    getOrders: input.provider?.getOrders ?? baseProvider.getOrders,
+    getSignals: input.provider?.getSignals ?? baseProvider.getSignals,
+    getRisk: input.provider?.getRisk ?? baseProvider.getRisk
   };
 
   app.get('/health', (_req, res) => {

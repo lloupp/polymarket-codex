@@ -165,3 +165,56 @@ test('CORE-005: writtenAt inválido no principal deve usar backup íntegro', asy
   const restored = await checkpoint.restore();
   assert.equal(restored?.orders[0]?.orderId, 'o-written');
 });
+
+test('CORE-006: deve registrar restore_meta como primary quando restore principal for válido', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-meta-primary-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    orders: [{ orderId: 'o-primary', status: 'open' }]
+  });
+  await checkpoint.persist(await store.getSnapshot());
+
+  const restored = await checkpoint.restore();
+  assert.equal(restored?.orders[0]?.orderId, 'o-primary');
+
+  const meta = checkpoint.getLastRestoreMeta();
+  assert.equal(meta.source, 'primary');
+  assert.equal(meta.reason, undefined);
+});
+
+test('CORE-006: deve registrar restore_meta como backup com reason quando fallback ocorrer', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-meta-backup-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    orders: [{ orderId: 'o-backup-meta', status: 'open' }]
+  });
+  await checkpoint.persist(await store.getSnapshot());
+
+  fs.writeFileSync(checkpointPath, '{ invalid json');
+
+  const restored = await checkpoint.restore();
+  assert.equal(restored?.orders[0]?.orderId, 'o-backup-meta');
+
+  const meta = checkpoint.getLastRestoreMeta();
+  assert.equal(meta.source, 'backup');
+  assert.equal(meta.reason, 'primary_restore_failed');
+});
+
+test('CORE-006: deve registrar restore_meta como none quando nenhum checkpoint existir', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-meta-none-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  const restored = await checkpoint.restore();
+
+  assert.equal(restored, null);
+  const meta = checkpoint.getLastRestoreMeta();
+  assert.equal(meta.source, 'none');
+  assert.equal(meta.reason, 'no_checkpoint_available');
+});

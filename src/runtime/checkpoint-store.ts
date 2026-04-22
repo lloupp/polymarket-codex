@@ -9,6 +9,11 @@ export type RuntimeCheckpointStoreConfig = {
   logger?: { warn: (message: string, context?: Record<string, unknown>) => void };
 };
 
+export type RuntimeCheckpointRestoreMeta = {
+  source: 'primary' | 'backup' | 'none';
+  reason?: 'primary_restore_failed' | 'no_checkpoint_available';
+};
+
 function isRuntimeSnapshot(input: unknown): input is RuntimeSnapshot {
   if (typeof input !== 'object' || input === null) {
     return false;
@@ -69,11 +74,13 @@ export class RuntimeCheckpointStore {
   private readonly filePath: string;
   private readonly backupFilePath: string;
   private readonly logger?: { warn: (message: string, context?: Record<string, unknown>) => void };
+  private lastRestoreMeta: RuntimeCheckpointRestoreMeta;
 
   constructor(config: RuntimeCheckpointStoreConfig) {
     this.filePath = config.filePath;
     this.backupFilePath = `${config.filePath}.bak`;
     this.logger = config.logger;
+    this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
   }
 
   async persist(snapshot: RuntimeSnapshot): Promise<void> {
@@ -151,16 +158,29 @@ export class RuntimeCheckpointStore {
     }
   }
 
+  getLastRestoreMeta(): RuntimeCheckpointRestoreMeta {
+    return this.lastRestoreMeta;
+  }
+
   async restore(): Promise<RuntimeSnapshot | null> {
     const primary = await this.restoreFromPath(this.filePath);
     if (primary !== null) {
+      this.lastRestoreMeta = { source: 'primary' };
       return primary;
     }
 
     if (this.backupFilePath === this.filePath) {
+      this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
       return null;
     }
 
-    return this.restoreFromPath(this.backupFilePath);
+    const backup = await this.restoreFromPath(this.backupFilePath);
+    if (backup !== null) {
+      this.lastRestoreMeta = { source: 'backup', reason: 'primary_restore_failed' };
+      return backup;
+    }
+
+    this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
+    return null;
   }
 }

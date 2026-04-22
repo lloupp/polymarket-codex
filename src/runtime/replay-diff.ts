@@ -30,6 +30,7 @@ export type ReplayDriftEvaluation = {
   status: 'stable' | 'drifted';
   violations: ReplayDriftViolation[];
   warnings: string[];
+  driftScore: number;
 };
 
 function diffSummary(baseline: ReplaySummary, candidate: ReplaySummary): ReplaySummaryDiff {
@@ -65,6 +66,8 @@ export function evaluateReplayDrift(input: {
 }): ReplayDriftEvaluation {
   const violations: ReplayDriftViolation[] = [];
 
+  let driftScore = 0;
+
   for (const [metric, budgetValue] of Object.entries(input.budget) as Array<
     [keyof ReplaySummaryDiff, number | undefined]
   >) {
@@ -74,6 +77,9 @@ export function evaluateReplayDrift(input: {
 
     const allowed = Math.max(0, budgetValue);
     const delta = input.comparison.summaryDiff[metric];
+    const normalized = Math.abs(delta) / Math.max(1, allowed);
+    driftScore += normalized;
+
     if (Math.abs(delta) > allowed) {
       violations.push({ metric, delta, budget: allowed });
     }
@@ -87,6 +93,23 @@ export function evaluateReplayDrift(input: {
   return {
     status: violations.length === 0 ? 'stable' : 'drifted',
     violations,
-    warnings
+    warnings,
+    driftScore
+  };
+}
+
+export function isReplayWithinGate(input: {
+  comparison: ReplayComparison;
+  budget: ReplayDriftBudget;
+  maxDriftScore: number;
+}): ReplayDriftEvaluation & { accepted: boolean } {
+  const evaluation = evaluateReplayDrift({
+    comparison: input.comparison,
+    budget: input.budget
+  });
+
+  return {
+    ...evaluation,
+    accepted: evaluation.driftScore <= Math.max(0, input.maxDriftScore)
   };
 }

@@ -243,6 +243,37 @@ test('LIVE-005: reset failover lock deve respeitar cooldown de rearm', async () 
   assert.equal(unlockedStatus.cooldownRemainingMs, 0);
 });
 
+test('LIVE-006: manual override deve forçar paper com motivo auditável até limpeza explícita', async () => {
+  const calls: string[] = [];
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    paperExecutor: async () => {
+      calls.push('paper');
+      return { fillId: 'paper-manual', executedPrice: 0.5, executedSize: 10 };
+    },
+    liveExecutor: async () => {
+      calls.push('live');
+      return { fillId: 'live-normal', executedPrice: 0.51, executedSize: 10 };
+    }
+  });
+
+  gateway.setManualPaperOverride('maintenance-window');
+
+  const overridden = await gateway.execute(makeIntent());
+  assert.equal(overridden.fillId, 'paper-manual');
+
+  const locked = gateway.getStatus();
+  assert.equal(locked.manualPaperOverride, true);
+  assert.equal(locked.manualPaperOverrideReason, 'maintenance-window');
+  assert.equal(locked.blockedReason, 'manual_paper_override');
+
+  gateway.clearManualPaperOverride();
+  const normal = await gateway.execute(makeIntent());
+  assert.equal(normal.fillId, 'live-normal');
+  assert.deepEqual(calls, ['paper', 'live']);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

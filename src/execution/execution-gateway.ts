@@ -37,10 +37,16 @@ export type ExecutionGatewayStatus = {
   effectiveMode: ExecutionMode | 'blocked';
   liveEnabled: boolean;
   killSwitch: boolean;
+  manualPaperOverride: boolean;
+  manualPaperOverrideReason?: string;
   failoverLocked: boolean;
   failoverCount: number;
   cooldownRemainingMs: number;
-  blockedReason?: 'live_not_enabled' | 'kill_switch_forced_paper' | 'auto_failover_live_error';
+  blockedReason?:
+    | 'live_not_enabled'
+    | 'kill_switch_forced_paper'
+    | 'auto_failover_live_error'
+    | 'manual_paper_override';
   lastFailoverAt?: string;
   lastFailoverReason?: string;
 };
@@ -49,6 +55,8 @@ export class ExecutionGateway {
   private mode: ExecutionMode;
   private liveEnabled: boolean;
   private killSwitch: boolean;
+  private manualPaperOverride: boolean;
+  private manualPaperOverrideReason?: string;
   private failoverLocked: boolean;
   private failoverCount: number;
   private readonly failoverResetCooldownMs: number;
@@ -65,6 +73,8 @@ export class ExecutionGateway {
     this.mode = config.mode;
     this.liveEnabled = config.liveEnabled;
     this.killSwitch = config.killSwitch ?? false;
+    this.manualPaperOverride = false;
+    this.manualPaperOverrideReason = undefined;
     this.failoverLocked = false;
     this.failoverCount = 0;
     this.failoverResetCooldownMs = Math.max(0, config.failoverResetCooldownMs ?? 0);
@@ -92,6 +102,19 @@ export class ExecutionGateway {
 
   setKillSwitch(killSwitch: boolean): void {
     this.killSwitch = killSwitch;
+  }
+
+  setManualPaperOverride(reason: string): void {
+    this.manualPaperOverride = true;
+    this.manualPaperOverrideReason = reason;
+  }
+
+  clearManualPaperOverride(): void {
+    this.manualPaperOverride = false;
+    this.manualPaperOverrideReason = undefined;
+    if (this.lastBlockedReason === 'manual_paper_override') {
+      this.lastBlockedReason = undefined;
+    }
   }
 
   resetFailoverLock(): void {
@@ -126,6 +149,11 @@ export class ExecutionGateway {
 
   async execute(intent: ExecutionIntent): Promise<ExecutionResult> {
     this.lastBlockedReason = undefined;
+
+    if (this.manualPaperOverride) {
+      this.lastBlockedReason = 'manual_paper_override';
+      return this.paperExecutor(intent);
+    }
 
     if (this.killSwitch) {
       this.lastBlockedReason = 'kill_switch_forced_paper';
@@ -165,10 +193,29 @@ export class ExecutionGateway {
         effectiveMode: 'blocked',
         liveEnabled: this.liveEnabled,
         killSwitch: this.killSwitch,
+        manualPaperOverride: this.manualPaperOverride,
+        manualPaperOverrideReason: this.manualPaperOverrideReason,
         failoverLocked: this.failoverLocked,
         failoverCount: this.failoverCount,
         cooldownRemainingMs,
         blockedReason: this.lastBlockedReason,
+        lastFailoverAt: this.lastFailoverAt,
+        lastFailoverReason: this.lastFailoverReason
+      };
+    }
+
+    if (this.manualPaperOverride) {
+      return {
+        configuredMode: this.mode,
+        effectiveMode: 'paper',
+        liveEnabled: this.liveEnabled,
+        killSwitch: this.killSwitch,
+        manualPaperOverride: this.manualPaperOverride,
+        manualPaperOverrideReason: this.manualPaperOverrideReason,
+        failoverLocked: this.failoverLocked,
+        failoverCount: this.failoverCount,
+        cooldownRemainingMs,
+        blockedReason: this.lastBlockedReason ?? 'manual_paper_override',
         lastFailoverAt: this.lastFailoverAt,
         lastFailoverReason: this.lastFailoverReason
       };
@@ -180,6 +227,8 @@ export class ExecutionGateway {
         effectiveMode: 'paper',
         liveEnabled: this.liveEnabled,
         killSwitch: this.killSwitch,
+        manualPaperOverride: this.manualPaperOverride,
+        manualPaperOverrideReason: this.manualPaperOverrideReason,
         failoverLocked: this.failoverLocked,
         failoverCount: this.failoverCount,
         cooldownRemainingMs,
@@ -194,6 +243,8 @@ export class ExecutionGateway {
       effectiveMode: this.mode,
       liveEnabled: this.liveEnabled,
       killSwitch: this.killSwitch,
+      manualPaperOverride: this.manualPaperOverride,
+      manualPaperOverrideReason: this.manualPaperOverrideReason,
       failoverLocked: this.failoverLocked,
       failoverCount: this.failoverCount,
       cooldownRemainingMs,

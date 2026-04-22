@@ -33,6 +33,19 @@ export type ReplayDriftEvaluation = {
   driftScore: number;
 };
 
+export type ReplayGateSeverity = 'pass' | 'warn' | 'fail';
+
+export type ReplayGateDecisionReason =
+  | 'stable_and_within_threshold'
+  | 'within_max_but_above_warn_threshold'
+  | 'drift_score_exceeded_max_threshold';
+
+export type ReplayGateDecision = ReplayDriftEvaluation & {
+  accepted: boolean;
+  severity: ReplayGateSeverity;
+  reason: ReplayGateDecisionReason;
+};
+
 function diffSummary(baseline: ReplaySummary, candidate: ReplaySummary): ReplaySummaryDiff {
   return {
     totalCyclesDelta: candidate.totalCycles - baseline.totalCycles,
@@ -111,5 +124,45 @@ export function isReplayWithinGate(input: {
   return {
     ...evaluation,
     accepted: evaluation.driftScore <= Math.max(0, input.maxDriftScore)
+  };
+}
+
+export function evaluateReplayGateDecision(input: {
+  comparison: ReplayComparison;
+  budget: ReplayDriftBudget;
+  maxDriftScore: number;
+  warnDriftScore?: number;
+}): ReplayGateDecision {
+  const evaluation = evaluateReplayDrift({
+    comparison: input.comparison,
+    budget: input.budget
+  });
+
+  const maxDriftScore = Math.max(0, input.maxDriftScore);
+  const warnDriftScore = Math.max(0, Math.min(maxDriftScore, input.warnDriftScore ?? maxDriftScore));
+
+  if (evaluation.driftScore > maxDriftScore) {
+    return {
+      ...evaluation,
+      accepted: false,
+      severity: 'fail',
+      reason: 'drift_score_exceeded_max_threshold'
+    };
+  }
+
+  if (evaluation.driftScore > warnDriftScore) {
+    return {
+      ...evaluation,
+      accepted: true,
+      severity: 'warn',
+      reason: 'within_max_but_above_warn_threshold'
+    };
+  }
+
+  return {
+    ...evaluation,
+    accepted: true,
+    severity: 'pass',
+    reason: 'stable_and_within_threshold'
   };
 }

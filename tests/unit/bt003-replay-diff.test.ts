@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { compareReplayReports, evaluateReplayDrift, isReplayWithinGate } from '../../src/runtime/replay-diff';
+import { compareReplayReports, evaluateReplayDrift, evaluateReplayGateDecision, isReplayWithinGate } from '../../src/runtime/replay-diff';
 import type { ReplayReport } from '../../src/runtime/orchestrator-replay-runner';
 
 function makeReport(overrides: Partial<ReplayReport> = {}): ReplayReport {
@@ -163,4 +163,78 @@ test('BT-005: gate numérico deve aprovar/reprovar com base no maxDriftScore', (
   assert.equal(passGate.driftScore, 2);
   assert.equal(failGate.accepted, false);
   assert.equal(failGate.driftScore, 2);
+});
+
+test('BT-006: gate decision deve classificar severity=pass com razão determinística', () => {
+  const baseline = makeReport();
+  const candidate = makeReport();
+
+  const comparison = compareReplayReports({ baseline, candidate });
+  const decision = evaluateReplayGateDecision({
+    comparison,
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 2,
+    warnDriftScore: 1
+  });
+
+  assert.equal(decision.accepted, true);
+  assert.equal(decision.severity, 'pass');
+  assert.equal(decision.reason, 'stable_and_within_threshold');
+});
+
+test('BT-006: gate decision deve classificar severity=warn quando driftScore ultrapassa warn', () => {
+  const baseline = makeReport();
+  const candidate = makeReport({
+    fingerprint: 'fp-warn',
+    summary: {
+      ...baseline.summary,
+      ordersFilled: 5,
+      ordersFailed: 1
+    }
+  });
+
+  const comparison = compareReplayReports({ baseline, candidate });
+  const decision = evaluateReplayGateDecision({
+    comparison,
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 3,
+    warnDriftScore: 1
+  });
+
+  assert.equal(decision.accepted, true);
+  assert.equal(decision.severity, 'warn');
+  assert.equal(decision.reason, 'within_max_but_above_warn_threshold');
+});
+
+test('BT-006: gate decision deve classificar severity=fail quando driftScore excede max', () => {
+  const baseline = makeReport();
+  const candidate = makeReport({
+    fingerprint: 'fp-fail',
+    summary: {
+      ...baseline.summary,
+      ordersFilled: 2,
+      ordersFailed: 4
+    }
+  });
+
+  const comparison = compareReplayReports({ baseline, candidate });
+  const decision = evaluateReplayGateDecision({
+    comparison,
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 3,
+    warnDriftScore: 1
+  });
+
+  assert.equal(decision.accepted, false);
+  assert.equal(decision.severity, 'fail');
+  assert.equal(decision.reason, 'drift_score_exceeded_max_threshold');
 });

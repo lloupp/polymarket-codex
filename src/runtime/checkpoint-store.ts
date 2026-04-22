@@ -14,6 +14,10 @@ export type RuntimeCheckpointRestoreMeta = {
   reason?: 'primary_restore_failed' | 'no_checkpoint_available';
 };
 
+export type RuntimeCheckpointRestoreEvent = RuntimeCheckpointRestoreMeta & {
+  at: string;
+};
+
 function isRuntimeSnapshot(input: unknown): input is RuntimeSnapshot {
   if (typeof input !== 'object' || input === null) {
     return false;
@@ -75,12 +79,16 @@ export class RuntimeCheckpointStore {
   private readonly backupFilePath: string;
   private readonly logger?: { warn: (message: string, context?: Record<string, unknown>) => void };
   private lastRestoreMeta: RuntimeCheckpointRestoreMeta;
+  private readonly restoreHistory: RuntimeCheckpointRestoreEvent[];
+  private readonly maxRestoreHistorySize: number;
 
   constructor(config: RuntimeCheckpointStoreConfig) {
     this.filePath = config.filePath;
     this.backupFilePath = `${config.filePath}.bak`;
     this.logger = config.logger;
     this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
+    this.restoreHistory = [];
+    this.maxRestoreHistorySize = 50;
   }
 
   async persist(snapshot: RuntimeSnapshot): Promise<void> {
@@ -162,25 +170,46 @@ export class RuntimeCheckpointStore {
     return this.lastRestoreMeta;
   }
 
+  getRestoreHistory(limit?: number): RuntimeCheckpointRestoreEvent[] {
+    if (limit === undefined) {
+      return [...this.restoreHistory];
+    }
+
+    const normalizedLimit = Math.max(0, Math.floor(limit));
+    return this.restoreHistory.slice(0, normalizedLimit);
+  }
+
+  private recordRestoreMeta(meta: RuntimeCheckpointRestoreMeta): void {
+    this.lastRestoreMeta = meta;
+    this.restoreHistory.unshift({
+      ...meta,
+      at: new Date().toISOString()
+    });
+
+    if (this.restoreHistory.length > this.maxRestoreHistorySize) {
+      this.restoreHistory.length = this.maxRestoreHistorySize;
+    }
+  }
+
   async restore(): Promise<RuntimeSnapshot | null> {
     const primary = await this.restoreFromPath(this.filePath);
     if (primary !== null) {
-      this.lastRestoreMeta = { source: 'primary' };
+      this.recordRestoreMeta({ source: 'primary' });
       return primary;
     }
 
     if (this.backupFilePath === this.filePath) {
-      this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
+      this.recordRestoreMeta({ source: 'none', reason: 'no_checkpoint_available' });
       return null;
     }
 
     const backup = await this.restoreFromPath(this.backupFilePath);
     if (backup !== null) {
-      this.lastRestoreMeta = { source: 'backup', reason: 'primary_restore_failed' };
+      this.recordRestoreMeta({ source: 'backup', reason: 'primary_restore_failed' });
       return backup;
     }
 
-    this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
+    this.recordRestoreMeta({ source: 'none', reason: 'no_checkpoint_available' });
     return null;
   }
 }

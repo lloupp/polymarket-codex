@@ -218,3 +218,42 @@ test('CORE-006: deve registrar restore_meta como none quando nenhum checkpoint e
   assert.equal(meta.source, 'none');
   assert.equal(meta.reason, 'no_checkpoint_available');
 });
+
+test('CORE-007: deve manter histórico de restore com timestamp e origem final', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-history-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    orders: [{ orderId: 'o-history', status: 'open' }]
+  });
+  await checkpoint.persist(await store.getSnapshot());
+
+  const restored = await checkpoint.restore();
+  assert.equal(restored?.orders[0]?.orderId, 'o-history');
+
+  const history = checkpoint.getRestoreHistory();
+  assert.equal(history.length, 1);
+  assert.equal(history[0]?.source, 'primary');
+  assert.equal(history[0]?.reason, undefined);
+  assert.equal(Number.isNaN(Date.parse(history[0]?.at ?? '')), false);
+});
+
+test('CORE-007: getRestoreHistory(limit) deve retornar eventos mais recentes primeiro', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-history-limit-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+
+  await checkpoint.restore();
+  await checkpoint.restore();
+  await checkpoint.restore();
+
+  const limited = checkpoint.getRestoreHistory(2);
+  assert.equal(limited.length, 2);
+  assert.equal(limited[0]?.source, 'none');
+  assert.equal(limited[0]?.reason, 'no_checkpoint_available');
+  assert.equal(limited[1]?.source, 'none');
+  assert.equal(limited[1]?.reason, 'no_checkpoint_available');
+});

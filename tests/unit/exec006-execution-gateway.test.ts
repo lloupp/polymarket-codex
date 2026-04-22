@@ -274,6 +274,48 @@ test('LIVE-006: manual override deve forçar paper com motivo auditável até li
   assert.deepEqual(calls, ['paper', 'live']);
 });
 
+test('LIVE-007: manual override com TTL deve expirar automaticamente e liberar live', async () => {
+  const calls: string[] = [];
+  let nowMs = Date.UTC(2026, 3, 22, 12, 0, 0);
+
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    now: () => new Date(nowMs),
+    paperExecutor: async () => {
+      calls.push('paper');
+      return { fillId: 'paper-ttl', executedPrice: 0.5, executedSize: 10 };
+    },
+    liveExecutor: async () => {
+      calls.push('live');
+      return { fillId: 'live-after-ttl', executedPrice: 0.51, executedSize: 10 };
+    }
+  });
+
+  gateway.setManualPaperOverride('safety-window', 60_000);
+
+  const duringTtl = await gateway.execute(makeIntent());
+  assert.equal(duringTtl.fillId, 'paper-ttl');
+
+  const statusDuringTtl = gateway.getStatus();
+  assert.equal(statusDuringTtl.manualPaperOverride, true);
+  assert.equal(statusDuringTtl.manualPaperOverrideReason, 'safety-window');
+  assert.equal(statusDuringTtl.manualPaperOverrideRemainingMs, 60_000);
+  assert.equal(typeof statusDuringTtl.manualPaperOverrideExpiresAt, 'string');
+
+  nowMs += 60_000;
+
+  const afterTtl = await gateway.execute(makeIntent());
+  assert.equal(afterTtl.fillId, 'live-after-ttl');
+
+  const statusAfterTtl = gateway.getStatus();
+  assert.equal(statusAfterTtl.manualPaperOverride, false);
+  assert.equal(statusAfterTtl.manualPaperOverrideReason, undefined);
+  assert.equal(statusAfterTtl.manualPaperOverrideRemainingMs, 0);
+  assert.equal(statusAfterTtl.manualPaperOverrideExpiresAt, undefined);
+  assert.deepEqual(calls, ['paper', 'live']);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

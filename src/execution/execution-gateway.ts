@@ -39,6 +39,8 @@ export type ExecutionGatewayStatus = {
   killSwitch: boolean;
   manualPaperOverride: boolean;
   manualPaperOverrideReason?: string;
+  manualPaperOverrideExpiresAt?: string;
+  manualPaperOverrideRemainingMs: number;
   failoverLocked: boolean;
   failoverCount: number;
   cooldownRemainingMs: number;
@@ -57,6 +59,7 @@ export class ExecutionGateway {
   private killSwitch: boolean;
   private manualPaperOverride: boolean;
   private manualPaperOverrideReason?: string;
+  private manualPaperOverrideExpiresAt?: string;
   private failoverLocked: boolean;
   private failoverCount: number;
   private readonly failoverResetCooldownMs: number;
@@ -75,6 +78,7 @@ export class ExecutionGateway {
     this.killSwitch = config.killSwitch ?? false;
     this.manualPaperOverride = false;
     this.manualPaperOverrideReason = undefined;
+    this.manualPaperOverrideExpiresAt = undefined;
     this.failoverLocked = false;
     this.failoverCount = 0;
     this.failoverResetCooldownMs = Math.max(0, config.failoverResetCooldownMs ?? 0);
@@ -104,14 +108,17 @@ export class ExecutionGateway {
     this.killSwitch = killSwitch;
   }
 
-  setManualPaperOverride(reason: string): void {
+  setManualPaperOverride(reason: string, ttlMs?: number): void {
     this.manualPaperOverride = true;
     this.manualPaperOverrideReason = reason;
+    const boundedTtl = Math.max(0, ttlMs ?? 0);
+    this.manualPaperOverrideExpiresAt = boundedTtl > 0 ? new Date(this.now().getTime() + boundedTtl).toISOString() : undefined;
   }
 
   clearManualPaperOverride(): void {
     this.manualPaperOverride = false;
     this.manualPaperOverrideReason = undefined;
+    this.manualPaperOverrideExpiresAt = undefined;
     if (this.lastBlockedReason === 'manual_paper_override') {
       this.lastBlockedReason = undefined;
     }
@@ -147,8 +154,32 @@ export class ExecutionGateway {
     return Math.max(0, this.failoverResetCooldownMs - elapsed);
   }
 
+  private getManualOverrideRemainingMs(): number {
+    if (!this.manualPaperOverride || !this.manualPaperOverrideExpiresAt) {
+      return 0;
+    }
+
+    const expiresAtMs = Date.parse(this.manualPaperOverrideExpiresAt);
+    if (!Number.isFinite(expiresAtMs)) {
+      return 0;
+    }
+
+    return Math.max(0, expiresAtMs - this.now().getTime());
+  }
+
+  private refreshManualOverrideState(): void {
+    if (!this.manualPaperOverride) {
+      return;
+    }
+
+    if (this.getManualOverrideRemainingMs() === 0 && this.manualPaperOverrideExpiresAt) {
+      this.clearManualPaperOverride();
+    }
+  }
+
   async execute(intent: ExecutionIntent): Promise<ExecutionResult> {
     this.lastBlockedReason = undefined;
+    this.refreshManualOverrideState();
 
     if (this.manualPaperOverride) {
       this.lastBlockedReason = 'manual_paper_override';
@@ -185,72 +216,54 @@ export class ExecutionGateway {
   }
 
   getStatus(): ExecutionGatewayStatus {
+    this.refreshManualOverrideState();
+
     const cooldownRemainingMs = this.getCooldownRemainingMs();
+    const manualPaperOverrideRemainingMs = this.getManualOverrideRemainingMs();
+
+    const base = {
+      configuredMode: this.mode,
+      liveEnabled: this.liveEnabled,
+      killSwitch: this.killSwitch,
+      manualPaperOverride: this.manualPaperOverride,
+      manualPaperOverrideReason: this.manualPaperOverrideReason,
+      manualPaperOverrideExpiresAt: this.manualPaperOverrideExpiresAt,
+      manualPaperOverrideRemainingMs,
+      failoverLocked: this.failoverLocked,
+      failoverCount: this.failoverCount,
+      cooldownRemainingMs,
+      lastFailoverAt: this.lastFailoverAt,
+      lastFailoverReason: this.lastFailoverReason
+    };
 
     if (this.lastBlockedReason === 'live_not_enabled') {
       return {
-        configuredMode: this.mode,
+        ...base,
         effectiveMode: 'blocked',
-        liveEnabled: this.liveEnabled,
-        killSwitch: this.killSwitch,
-        manualPaperOverride: this.manualPaperOverride,
-        manualPaperOverrideReason: this.manualPaperOverrideReason,
-        failoverLocked: this.failoverLocked,
-        failoverCount: this.failoverCount,
-        cooldownRemainingMs,
-        blockedReason: this.lastBlockedReason,
-        lastFailoverAt: this.lastFailoverAt,
-        lastFailoverReason: this.lastFailoverReason
+        blockedReason: this.lastBlockedReason
       };
     }
 
     if (this.manualPaperOverride) {
       return {
-        configuredMode: this.mode,
+        ...base,
         effectiveMode: 'paper',
-        liveEnabled: this.liveEnabled,
-        killSwitch: this.killSwitch,
-        manualPaperOverride: this.manualPaperOverride,
-        manualPaperOverrideReason: this.manualPaperOverrideReason,
-        failoverLocked: this.failoverLocked,
-        failoverCount: this.failoverCount,
-        cooldownRemainingMs,
-        blockedReason: this.lastBlockedReason ?? 'manual_paper_override',
-        lastFailoverAt: this.lastFailoverAt,
-        lastFailoverReason: this.lastFailoverReason
+        blockedReason: this.lastBlockedReason ?? 'manual_paper_override'
       };
     }
 
     if (this.killSwitch) {
       return {
-        configuredMode: this.mode,
+        ...base,
         effectiveMode: 'paper',
-        liveEnabled: this.liveEnabled,
-        killSwitch: this.killSwitch,
-        manualPaperOverride: this.manualPaperOverride,
-        manualPaperOverrideReason: this.manualPaperOverrideReason,
-        failoverLocked: this.failoverLocked,
-        failoverCount: this.failoverCount,
-        cooldownRemainingMs,
-        blockedReason: this.lastBlockedReason ?? 'kill_switch_forced_paper',
-        lastFailoverAt: this.lastFailoverAt,
-        lastFailoverReason: this.lastFailoverReason
+        blockedReason: this.lastBlockedReason ?? 'kill_switch_forced_paper'
       };
     }
 
     return {
-      configuredMode: this.mode,
+      ...base,
       effectiveMode: this.mode,
-      liveEnabled: this.liveEnabled,
-      killSwitch: this.killSwitch,
-      manualPaperOverride: this.manualPaperOverride,
-      manualPaperOverrideReason: this.manualPaperOverrideReason,
-      failoverLocked: this.failoverLocked,
-      failoverCount: this.failoverCount,
-      cooldownRemainingMs,
-      blockedReason: this.lastBlockedReason,
-      lastFailoverAt: this.lastFailoverAt,
-      lastFailoverReason: this.lastFailoverReason
+      blockedReason: this.lastBlockedReason
     };
   }
 }

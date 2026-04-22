@@ -67,6 +67,25 @@ Ações:
 3. Validar integridade de migrations (`migration:up` quando aplicável).
 4. Restaurar conexão e reprocessar reconciliação.
 
+### 3.4 Watchdog de staleness (MON-003)
+
+**Sinais:**
+- `polymarket_stale_modules_total > 0`
+- alerta `incident=staleness`
+- `polymarket_module_stale{module="<nome>"} = 1`
+
+**Thresholds recomendados (paper/live-ready):**
+- `orchestrator`: stale após **30s** sem heartbeat
+- `execution`: stale após **20s** sem heartbeat
+- `reconciliation`: stale após **45s** sem heartbeat
+- repetição de alerta: a cada **60s** enquanto persistir stale
+
+Ações:
+1. Identificar módulo stale no `/metrics`.
+2. Correlacionar com logs estruturados por `cycleId`.
+3. Se `execution` ou `reconciliation` stale por > 2 janelas, pausar ordens.
+4. Restabelecer heartbeat e confirmar retorno para `module_stale=0`.
+
 ## 4) Checklist para habilitar live trading
 
 > **Não habilitar live trading sem todos os itens abaixo.**

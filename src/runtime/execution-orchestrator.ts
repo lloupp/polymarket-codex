@@ -1,5 +1,6 @@
 import { planExecutionIntents, type OrderPlannerInput } from '../execution/order-planner';
 import { type MetricsRegistry } from '../monitoring/metrics-registry';
+import { type MonitoringWatchdog } from '../monitoring/watchdog';
 import { type PortfolioExposureSnapshot, type PreTradeRiskEngine } from '../risk/pretrade-engine';
 import { type CircuitBreaker } from '../risk/circuit-breaker';
 import { type RuntimeStateStore } from './state-store';
@@ -40,6 +41,7 @@ export type ExecutionOrchestratorConfig = {
   executeIntent: (intent: ExecutionIntent) => Promise<{ fillId: string; executedPrice: number; executedSize: number }>;
   reconcileOnce: () => Promise<{ ordersUpdated: number; fillsInserted: number }>;
   onEvent?: (event: OrchestratorEvent) => Promise<void>;
+  watchdog?: MonitoringWatchdog;
   now?: () => number;
 };
 
@@ -62,6 +64,7 @@ export class ExecutionOrchestrator {
 
   async runCycle(input: { cycleId?: string } = {}): Promise<CycleResult> {
     const cycleId = input.cycleId ?? `cycle-${++this.cycleSequence}`;
+    this.config.watchdog?.heartbeat('orchestrator', { timestampMs: this.now() });
     await this.emit({ type: 'cycle_started', cycleId, metadata: {} });
 
     const signals = await this.config.fetchSignals();
@@ -127,6 +130,7 @@ export class ExecutionOrchestrator {
         await this.emit({ type: 'signal_accepted', cycleId, metadata: { signalKey: dedupKey } });
 
         const startedAt = this.now();
+        this.config.watchdog?.heartbeat('execution', { timestampMs: startedAt });
         try {
           const fill = await this.config.executeIntent(intent);
           const latencyMs = Math.max(0, this.now() - startedAt);
@@ -177,6 +181,8 @@ export class ExecutionOrchestrator {
       }
     }
 
+    const reconcileStartedAt = this.now();
+    this.config.watchdog?.heartbeat('reconciliation', { timestampMs: reconcileStartedAt });
     const reconciliation = await this.config.reconcileOnce();
     await this.emit({
       type: 'reconcile_finished',
@@ -186,6 +192,8 @@ export class ExecutionOrchestrator {
         fillsInserted: reconciliation.fillsInserted
       }
     });
+
+    const watchdogStatus = await this.config.watchdog?.evaluate({ timestampMs: this.now() });
 
     const breakerState = this.config.breaker.getState();
     await this.config.stateStore.updateState({
@@ -197,7 +205,8 @@ export class ExecutionOrchestrator {
         lastCycleId: cycleId,
         blockedSignals: blockedSignals.length,
         acceptedSignals: acceptedSignals.length,
-        reconciliation
+        reconciliation,
+        watchdog: watchdogStatus ?? null
       }
     });
 

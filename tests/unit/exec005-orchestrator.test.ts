@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { ExecutionOrchestrator } from '../../src/runtime/execution-orchestrator';
 import { MetricsRegistry } from '../../src/monitoring/metrics-registry';
+import { MonitoringWatchdog } from '../../src/monitoring/watchdog';
 import { PaperExecutor } from '../../src/execution/paper-executor';
 import { PreTradeRiskEngine } from '../../src/risk/pretrade-engine';
 import { CircuitBreaker } from '../../src/risk/circuit-breaker';
@@ -29,6 +30,15 @@ test('EXEC-005: fluxo E2E determinístico deve executar Signal→Risk→Executio
   const stateStore = new RuntimeStateStore();
   const paperExecutor = new PaperExecutor({ slippageBps: 0 });
   const events: string[] = [];
+  const watchdog = new MonitoringWatchdog({
+    modules: [
+      { module: 'orchestrator', staleAfterMs: 10_000, incidentType: 'staleness' },
+      { module: 'execution', staleAfterMs: 10_000, incidentType: 'staleness' },
+      { module: 'reconciliation', staleAfterMs: 10_000, incidentType: 'staleness' }
+    ],
+    metrics,
+    now: () => Date.now()
+  });
 
   const orchestrator = new ExecutionOrchestrator({
     fetchSignals: async () => [
@@ -52,6 +62,7 @@ test('EXEC-005: fluxo E2E determinístico deve executar Signal→Risk→Executio
     },
     executeIntent: async (intent) => paperExecutor.execute(intent),
     reconcileOnce: async () => ({ ordersUpdated: 2, fillsInserted: 2 }),
+    watchdog,
     onEvent: async (event) => {
       events.push(event.type);
     }
@@ -72,6 +83,9 @@ test('EXEC-005: fluxo E2E determinístico deve executar Signal→Risk→Executio
   assert.equal(snapshot.ordersFilled, 2);
   assert.equal(snapshot.signalsAccepted, 2);
   assert.equal(snapshot.signalsBlocked, 1);
+  assert.equal(snapshot.moduleHealth.some((module) => module.module === 'orchestrator'), true);
+  assert.equal(snapshot.moduleHealth.some((module) => module.module === 'execution'), true);
+  assert.equal(snapshot.moduleHealth.some((module) => module.module === 'reconciliation'), true);
 
   const runtime = await stateStore.getSnapshot();
   assert.equal(runtime.signals.length, 2);

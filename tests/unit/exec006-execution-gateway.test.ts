@@ -316,6 +316,21 @@ test('LIVE-007: manual override com TTL deve expirar automaticamente e liberar l
   assert.deepEqual(calls, ['paper', 'live']);
 });
 
+test('LIVE-008: setManualPaperOverride deve sanitizar reason e rejeitar valor vazio', async () => {
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    paperExecutor: async () => ({ fillId: 'paper', executedPrice: 0.5, executedSize: 10 }),
+    liveExecutor: async () => ({ fillId: 'live', executedPrice: 0.51, executedSize: 10 })
+  });
+
+  gateway.setManualPaperOverride('   maintenance-window   ');
+  const statusWithTrim = gateway.getStatus();
+  assert.equal(statusWithTrim.manualPaperOverrideReason, 'maintenance-window');
+
+  assert.throws(() => gateway.setManualPaperOverride('   '), /manual override reason cannot be empty/i);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

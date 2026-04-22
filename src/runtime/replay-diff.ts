@@ -166,3 +166,14 @@ export function evaluateReplayGateDecision(input: {
     reason: 'stable_and_within_threshold'
   };
 }
+
+export function formatReplayGateSummary(decision: ReplayGateDecision): string {
+  return [
+    `severity=${decision.severity}`,
+    `accepted=${decision.accepted}`,
+    `reason=${decision.reason}`,
+    `driftScore=${decision.driftScore.toFixed(3)}`,
+    `violations=${decision.violations.length}`,
+    `warnings=${decision.warnings.length}`
+  ].join(' ');
+}

@@ -257,3 +257,36 @@ test('CORE-007: getRestoreHistory(limit) deve retornar eventos mais recentes pri
   assert.equal(limited[1]?.source, 'none');
   assert.equal(limited[1]?.reason, 'no_checkpoint_available');
 });
+
+test('CORE-008: clearRestoreHistory deve limpar histórico sem perder último restore_meta', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-history-clear-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+
+  await checkpoint.restore();
+  await checkpoint.restore();
+
+  assert.equal(checkpoint.getRestoreHistory().length, 2);
+  checkpoint.clearRestoreHistory();
+  assert.equal(checkpoint.getRestoreHistory().length, 0);
+
+  const meta = checkpoint.getLastRestoreMeta();
+  assert.equal(meta.source, 'none');
+  assert.equal(meta.reason, 'no_checkpoint_available');
+});
+
+test('CORE-008: getRestoreHistory(limit) deve tratar limites inválidos de forma segura', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-history-invalid-limit-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+
+  await checkpoint.restore();
+  await checkpoint.restore();
+
+  assert.equal(checkpoint.getRestoreHistory(Number.NaN).length, 0);
+  assert.equal(checkpoint.getRestoreHistory(-3).length, 0);
+  assert.equal(checkpoint.getRestoreHistory(0).length, 0);
+  assert.equal(checkpoint.getRestoreHistory(1.9).length, 1);
+});

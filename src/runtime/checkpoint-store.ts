@@ -179,6 +179,10 @@ export class RuntimeCheckpointStore {
     return this.restoreHistory.slice(0, normalizedLimit);
   }
 
+  clearRestoreHistory(): void {
+    this.restoreHistory.length = 0;
+  }
+
   private recordRestoreMeta(meta: RuntimeCheckpointRestoreMeta): void {
     this.lastRestoreMeta = meta;
     this.restoreHistory.unshift({

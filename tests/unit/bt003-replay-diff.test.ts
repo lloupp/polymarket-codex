@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { compareReplayReports, evaluateReplayDrift, evaluateReplayGateDecision, isReplayWithinGate } from '../../src/runtime/replay-diff';
+import {
+  compareReplayReports,
+  evaluateReplayDrift,
+  evaluateReplayGateDecision,
+  formatReplayGateSummary,
+  isReplayWithinGate
+} from '../../src/runtime/replay-diff';
 import type { ReplayReport } from '../../src/runtime/orchestrator-replay-runner';
 
 function makeReport(overrides: Partial<ReplayReport> = {}): ReplayReport {
@@ -237,4 +243,69 @@ test('BT-006: gate decision deve classificar severity=fail quando driftScore exc
   assert.equal(decision.accepted, false);
   assert.equal(decision.severity, 'fail');
   assert.equal(decision.reason, 'drift_score_exceeded_max_threshold');
+});
+
+test('BT-007: formatReplayGateSummary deve gerar saída determinística para pass/warn/fail', () => {
+  const stableDecision = evaluateReplayGateDecision({
+    comparison: compareReplayReports({ baseline: makeReport(), candidate: makeReport() }),
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 2,
+    warnDriftScore: 1
+  });
+
+  const warnDecision = evaluateReplayGateDecision({
+    comparison: compareReplayReports({
+      baseline: makeReport(),
+      candidate: makeReport({
+        fingerprint: 'fp-warn-summary',
+        summary: {
+          ...makeReport().summary,
+          ordersFilled: 5,
+          ordersFailed: 1
+        }
+      })
+    }),
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 3,
+    warnDriftScore: 1
+  });
+
+  const failDecision = evaluateReplayGateDecision({
+    comparison: compareReplayReports({
+      baseline: makeReport(),
+      candidate: makeReport({
+        fingerprint: 'fp-fail-summary',
+        summary: {
+          ...makeReport().summary,
+          ordersFilled: 2,
+          ordersFailed: 4
+        }
+      })
+    }),
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 3,
+    warnDriftScore: 1
+  });
+
+  assert.equal(
+    formatReplayGateSummary(stableDecision),
+    'severity=pass accepted=true reason=stable_and_within_threshold driftScore=0.000 violations=0 warnings=0'
+  );
+  assert.equal(
+    formatReplayGateSummary(warnDecision),
+    'severity=warn accepted=true reason=within_max_but_above_warn_threshold driftScore=2.000 violations=0 warnings=1'
+  );
+  assert.equal(
+    formatReplayGateSummary(failDecision),
+    'severity=fail accepted=false reason=drift_score_exceeded_max_threshold driftScore=8.000 violations=2 warnings=1'
+  );
 });

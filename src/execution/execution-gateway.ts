@@ -109,8 +109,13 @@ export class ExecutionGateway {
   }
 
   setManualPaperOverride(reason: string, ttlMs?: number): void {
+    const sanitizedReason = reason.trim();
+    if (sanitizedReason.length === 0) {
+      throw new Error('manual override reason cannot be empty');
+    }
+
     this.manualPaperOverride = true;
-    this.manualPaperOverrideReason = reason;
+    this.manualPaperOverrideReason = sanitizedReason;
     const boundedTtl = Math.max(0, ttlMs ?? 0);
     this.manualPaperOverrideExpiresAt = boundedTtl > 0 ? new Date(this.now().getTime() + boundedTtl).toISOString() : undefined;
   }

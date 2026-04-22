@@ -99,6 +99,7 @@ Ações:
 - [ ] Procedimento de rollback testado
 - [ ] Chaves/segredos fora do código e rotacionáveis
 - [ ] Aprovação operacional registrada
+- [ ] Protocolo `docs/live-pilot.md` revisado e assinado (go/no-go)
 
 ## 5) Auditoria mínima por incidente
 

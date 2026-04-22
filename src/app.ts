@@ -52,6 +52,29 @@ function unauthorized(res: express.Response): void {
   res.status(401).json({ error: 'unauthorized', message: 'invalid admin token' });
 }
 
+function badRequest(res: express.Response, message: string): void {
+  res.status(400).json({ error: 'bad_request', message });
+}
+
+function ensureAuthorized(
+  req: express.Request,
+  res: express.Response,
+  control: CreateAppInput['control']
+): control is NonNullable<CreateAppInput['control']> {
+  if (!control) {
+    res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
+    return false;
+  }
+
+  const token = req.header('x-admin-token');
+  if (token !== control.adminToken) {
+    unauthorized(res);
+    return false;
+  }
+
+  return true;
+}
+
 export function createApp(input: CreateAppInput = {}) {
   const app = express();
   const startedAt = input.startedAt ?? new Date();
@@ -124,6 +147,12 @@ export function createApp(input: CreateAppInput = {}) {
     }
   });
 
+  app.get('/execution', (_req, res) => {
+    res.status(200).json({
+      execution: input.control?.plane.getState().execution ?? null
+    });
+  });
+
   app.get('/risk', async (_req, res, next) => {
     try {
       const risk = await provider.getRisk();
@@ -144,14 +173,7 @@ export function createApp(input: CreateAppInput = {}) {
 
   app.post('/control/pause', async (req, res, next) => {
     try {
-      if (!input.control) {
-        res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
-        return;
-      }
-
-      const token = req.header('x-admin-token');
-      if (token !== input.control.adminToken) {
-        unauthorized(res);
+      if (!ensureAuthorized(req, res, input.control)) {
         return;
       }
 
@@ -168,14 +190,7 @@ export function createApp(input: CreateAppInput = {}) {
 
   app.post('/control/resume', async (req, res, next) => {
     try {
-      if (!input.control) {
-        res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
-        return;
-      }
-
-      const token = req.header('x-admin-token');
-      if (token !== input.control.adminToken) {
-        unauthorized(res);
+      if (!ensureAuthorized(req, res, input.control)) {
         return;
       }
 
@@ -192,14 +207,7 @@ export function createApp(input: CreateAppInput = {}) {
 
   app.post('/control/reset-breaker', async (req, res, next) => {
     try {
-      if (!input.control) {
-        res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
-        return;
-      }
-
-      const token = req.header('x-admin-token');
-      if (token !== input.control.adminToken) {
-        unauthorized(res);
+      if (!ensureAuthorized(req, res, input.control)) {
         return;
       }
 
@@ -209,6 +217,75 @@ export function createApp(input: CreateAppInput = {}) {
       });
 
       res.status(200).json({ ok: true, command: 'reset-breaker', result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/control/execution-mode', async (req, res, next) => {
+    try {
+      if (!ensureAuthorized(req, res, input.control)) {
+        return;
+      }
+
+      if (req.body?.mode !== 'paper' && req.body?.mode !== 'live') {
+        badRequest(res, 'mode must be one of: paper, live');
+        return;
+      }
+
+      const result = await input.control.plane.setExecutionMode({
+        mode: req.body.mode,
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+        actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined
+      });
+
+      res.status(200).json({ ok: true, command: 'execution-mode', result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/control/live-enabled', async (req, res, next) => {
+    try {
+      if (!ensureAuthorized(req, res, input.control)) {
+        return;
+      }
+
+      if (typeof req.body?.enabled !== 'boolean') {
+        badRequest(res, 'enabled must be boolean');
+        return;
+      }
+
+      const result = await input.control.plane.setLiveEnabled({
+        enabled: req.body.enabled,
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+        actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined
+      });
+
+      res.status(200).json({ ok: true, command: 'live-enabled', result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/control/kill-switch', async (req, res, next) => {
+    try {
+      if (!ensureAuthorized(req, res, input.control)) {
+        return;
+      }
+
+      if (typeof req.body?.enabled !== 'boolean') {
+        badRequest(res, 'enabled must be boolean');
+        return;
+      }
+
+      const result = await input.control.plane.setKillSwitch({
+        enabled: req.body.enabled,
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+        actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined
+      });
+
+      res.status(200).json({ ok: true, command: 'kill-switch', result });
     } catch (error) {
       next(error);
     }

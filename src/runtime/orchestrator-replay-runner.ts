@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { CycleResult } from './execution-orchestrator';
 
 export type ReplayScenario = {
@@ -26,6 +28,7 @@ export type ReplayReport = {
   cycles: Array<CycleResult & { status: 'ok' | 'failed' }>;
   incidents: ReplayIncident[];
   summary: ReplaySummary;
+  fingerprint: string;
 };
 
 export type OrchestratorReplayRunnerConfig = {
@@ -100,10 +103,21 @@ export class OrchestratorReplayRunner {
       }
     );
 
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          cycles,
+          incidents,
+          summary
+        })
+      )
+      .digest('hex');
+
     return {
       cycles,
       incidents,
-      summary
+      summary,
+      fingerprint
     };
   }
 }

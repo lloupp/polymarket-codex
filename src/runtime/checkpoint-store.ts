@@ -27,10 +27,12 @@ function isRuntimeSnapshot(input: unknown): input is RuntimeSnapshot {
 
 export class RuntimeCheckpointStore {
   private readonly filePath: string;
+  private readonly backupFilePath: string;
   private readonly logger?: { warn: (message: string, context?: Record<string, unknown>) => void };
 
   constructor(config: RuntimeCheckpointStoreConfig) {
     this.filePath = config.filePath;
+    this.backupFilePath = `${config.filePath}.bak`;
     this.logger = config.logger;
   }
 
@@ -42,16 +44,17 @@ export class RuntimeCheckpointStore {
     await fs.mkdir(directory, { recursive: true });
     await fs.writeFile(tempPath, payload, 'utf8');
     await fs.rename(tempPath, this.filePath);
+    await fs.copyFile(this.filePath, this.backupFilePath);
   }
 
-  async restore(): Promise<RuntimeSnapshot | null> {
+  private async restoreFromPath(targetPath: string): Promise<RuntimeSnapshot | null> {
     try {
-      const content = await fs.readFile(this.filePath, 'utf8');
+      const content = await fs.readFile(targetPath, 'utf8');
       const parsed = JSON.parse(content) as unknown;
 
       if (!isRuntimeSnapshot(parsed)) {
         this.logger?.warn('runtime checkpoint schema invalid; ignoring restore', {
-          filePath: this.filePath
+          filePath: targetPath
         });
         return null;
       }
@@ -64,10 +67,23 @@ export class RuntimeCheckpointStore {
       }
 
       this.logger?.warn('runtime checkpoint restore failed; ignoring checkpoint', {
-        filePath: this.filePath,
+        filePath: targetPath,
         reason: error instanceof Error ? error.message : String(error)
       });
       return null;
     }
+  }
+
+  async restore(): Promise<RuntimeSnapshot | null> {
+    const primary = await this.restoreFromPath(this.filePath);
+    if (primary !== null) {
+      return primary;
+    }
+
+    if (this.backupFilePath === this.filePath) {
+      return null;
+    }
+
+    return this.restoreFromPath(this.backupFilePath);
   }
 }

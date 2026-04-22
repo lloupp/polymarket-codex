@@ -156,6 +156,35 @@ test('LIVE-002: erro crítico em live deve acionar failover automático para pap
   assert.deepEqual(calls, ['live', 'paper']);
 });
 
+test('LIVE-003: erro live não crítico não deve acionar failover automático', async () => {
+  const calls: string[] = [];
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    autoFailoverToPaperOnLiveError: true,
+    isCriticalLiveError: () => false,
+    paperExecutor: async () => {
+      calls.push('paper');
+      return { fillId: 'paper-should-not-run', executedPrice: 0.5, executedSize: 10 };
+    },
+    liveExecutor: async () => {
+      calls.push('live');
+      throw new Error('temporary upstream timeout');
+    }
+  });
+
+  await assert.rejects(() => gateway.execute(makeIntent()), /timeout/);
+
+  const status = gateway.getStatus();
+  assert.equal(status.killSwitch, false);
+  assert.equal(status.effectiveMode, 'live');
+  assert.equal(status.blockedReason, undefined);
+  assert.equal(status.lastFailoverReason, undefined);
+
+  await assert.rejects(() => gateway.execute(makeIntent()), /timeout/);
+  assert.deepEqual(calls, ['live', 'live']);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

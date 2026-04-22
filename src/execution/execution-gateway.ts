@@ -25,6 +25,7 @@ export type ExecutionGatewayConfig = {
   liveEnabled: boolean;
   killSwitch?: boolean;
   autoFailoverToPaperOnLiveError?: boolean;
+  isCriticalLiveError?: (error: unknown) => boolean;
   paperExecutor: ExecutionFn;
   liveExecutor: ExecutionFn;
 };
@@ -46,6 +47,7 @@ export class ExecutionGateway {
   private readonly paperExecutor: ExecutionFn;
   private readonly liveExecutor: ExecutionFn;
   private readonly autoFailoverToPaperOnLiveError: boolean;
+  private readonly isCriticalLiveError: (error: unknown) => boolean;
   private lastBlockedReason?: ExecutionGatewayStatus['blockedReason'];
   private lastFailoverAt?: string;
   private lastFailoverReason?: string;
@@ -57,6 +59,14 @@ export class ExecutionGateway {
     this.paperExecutor = config.paperExecutor;
     this.liveExecutor = config.liveExecutor;
     this.autoFailoverToPaperOnLiveError = config.autoFailoverToPaperOnLiveError ?? false;
+    this.isCriticalLiveError =
+      config.isCriticalLiveError ??
+      ((error) => {
+        if (error instanceof Error) {
+          return true;
+        }
+        return true;
+      });
   }
 
   setMode(mode: ExecutionMode): void {
@@ -88,7 +98,7 @@ export class ExecutionGateway {
       try {
         return await this.liveExecutor(intent);
       } catch (error) {
-        if (this.autoFailoverToPaperOnLiveError) {
+        if (this.autoFailoverToPaperOnLiveError && this.isCriticalLiveError(error)) {
           this.killSwitch = true;
           this.lastBlockedReason = 'auto_failover_live_error';
           this.lastFailoverAt = new Date().toISOString();

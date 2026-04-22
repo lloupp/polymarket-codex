@@ -47,3 +47,28 @@ test('CORE-002: arquivo corrompido não deve derrubar restore (fallback null)', 
 
   assert.equal(restored, null);
 });
+
+test('CORE-003: restore deve usar backup quando checkpoint principal estiver corrompido', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-backup-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    positions: [{ marketId: 'm-backup', size: 2 }],
+    orders: [{ orderId: 'o-backup', status: 'open' }],
+    signals: [{ signalId: 's-backup', edge: 0.02 }],
+    risk: { status: 'ok', breaker: { tripped: false } }
+  });
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  await checkpoint.persist(await store.getSnapshot());
+
+  const backupPath = `${checkpointPath}.bak`;
+  assert.equal(fs.existsSync(backupPath), true);
+
+  fs.writeFileSync(checkpointPath, '{ invalid json');
+
+  const restored = await checkpoint.restore();
+  assert.equal(restored?.orders[0]?.orderId, 'o-backup');
+  assert.equal(restored?.positions[0]?.marketId, 'm-backup');
+});

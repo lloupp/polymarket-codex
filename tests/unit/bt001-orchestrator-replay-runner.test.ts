@@ -25,6 +25,29 @@ test('BT-001: replay baseline deve ser determinístico para mesmo cenário', asy
   assert.deepEqual(first.summary, second.summary);
   assert.equal(first.summary.failedCycles, 0);
   assert.equal(first.summary.ordersFilled, 4);
+  assert.equal(typeof first.fingerprint, 'string');
+  assert.equal(first.fingerprint.length > 0, true);
+  assert.equal(first.fingerprint, second.fingerprint);
+});
+
+test('BT-002: fingerprint deve mudar quando resultado do replay muda', async () => {
+  const runner = new OrchestratorReplayRunner({
+    runCycle: async ({ cycleId }) => ({
+      cycleId,
+      signalsReceived: 1,
+      signalsAccepted: 1,
+      signalsBlocked: 0,
+      ordersSubmitted: 1,
+      ordersFailed: 0,
+      ordersFilled: cycleId === 'c2' ? 0 : 1,
+      reconciliation: { ordersUpdated: 1, fillsInserted: cycleId === 'c2' ? 0 : 1 }
+    })
+  });
+
+  const baseline = await runner.run({ scenarios: [{ cycleId: 'c1' }, { cycleId: 'c3' }] });
+  const changed = await runner.run({ scenarios: [{ cycleId: 'c1' }, { cycleId: 'c2' }] });
+
+  assert.notEqual(baseline.fingerprint, changed.fingerprint);
 });
 
 test('BT-001: replay deve registrar incidente quando ciclo falha por erro injetado', async () => {

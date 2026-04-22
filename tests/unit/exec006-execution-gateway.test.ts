@@ -126,6 +126,36 @@ test('EXEC-006: kill-switch deve forçar fallback para paper mesmo em modo live'
   assert.equal(status.blockedReason, 'kill_switch_forced_paper');
 });
 
+test('LIVE-002: erro crítico em live deve acionar failover automático para paper', async () => {
+  const calls: string[] = [];
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    autoFailoverToPaperOnLiveError: true,
+    paperExecutor: async () => {
+      calls.push('paper');
+      return { fillId: 'paper-after-failover', executedPrice: 0.5, executedSize: 10 };
+    },
+    liveExecutor: async () => {
+      calls.push('live');
+      throw new Error('live adapter critical failure');
+    }
+  });
+
+  await assert.rejects(() => gateway.execute(makeIntent()), /critical failure/);
+
+  const afterFailureStatus = gateway.getStatus();
+  assert.equal(afterFailureStatus.killSwitch, true);
+  assert.equal(afterFailureStatus.effectiveMode, 'paper');
+  assert.equal(afterFailureStatus.blockedReason, 'auto_failover_live_error');
+  assert.equal(afterFailureStatus.lastFailoverReason, 'live adapter critical failure');
+  assert.equal(typeof afterFailureStatus.lastFailoverAt, 'string');
+
+  const result = await gateway.execute(makeIntent());
+  assert.equal(result.fillId, 'paper-after-failover');
+  assert.deepEqual(calls, ['live', 'paper']);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

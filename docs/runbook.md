@@ -100,6 +100,7 @@ Ações:
 - [ ] Chaves/segredos fora do código e rotacionáveis
 - [ ] Aprovação operacional registrada
 - [ ] Protocolo `docs/live-pilot.md` revisado e assinado (go/no-go)
+- [ ] Playbook `docs/live-cutover.md` revisado e assinado (cutover/rollback)
 
 ## 5) Auditoria mínima por incidente
 

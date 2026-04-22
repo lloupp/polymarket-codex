@@ -11,6 +11,12 @@ export type ApiDataProvider = {
   getRisk: () => Promise<Record<string, unknown>>;
   getCycles: () => Promise<unknown[]>;
   getEvents: () => Promise<unknown[]>;
+  getReplay: (query: {
+    limit?: number;
+    eventType?: string;
+    from?: string;
+    to?: string;
+  }) => Promise<Record<string, unknown>>;
 };
 
 export type CreateAppInput = {
@@ -31,7 +37,14 @@ function buildStateStoreProvider(stateStore: RuntimeStateStore): ApiDataProvider
     getSignals: async () => (await stateStore.getSnapshot()).signals,
     getRisk: async () => (await stateStore.getSnapshot()).risk,
     getCycles: async () => [],
-    getEvents: async () => []
+    getEvents: async () => [],
+    getReplay: async (query) => ({
+      generatedAt: new Date().toISOString(),
+      filters: query,
+      cycles: [],
+      events: [],
+      summary: { cycles: 0, events: 0, eventTypes: [] }
+    })
   };
 }
 
@@ -45,7 +58,14 @@ const fallbackProvider: ApiDataProvider = {
     status: 'ok'
   }),
   getCycles: async () => [],
-  getEvents: async () => []
+  getEvents: async () => [],
+  getReplay: async (query) => ({
+    generatedAt: new Date().toISOString(),
+    filters: query,
+    cycles: [],
+    events: [],
+    summary: { cycles: 0, events: 0, eventTypes: [] }
+  })
 };
 
 function unauthorized(res: express.Response): void {
@@ -90,7 +110,8 @@ export function createApp(input: CreateAppInput = {}) {
     getSignals: input.provider?.getSignals ?? baseProvider.getSignals,
     getRisk: input.provider?.getRisk ?? baseProvider.getRisk,
     getCycles: input.provider?.getCycles ?? baseProvider.getCycles,
-    getEvents: input.provider?.getEvents ?? baseProvider.getEvents
+    getEvents: input.provider?.getEvents ?? baseProvider.getEvents,
+    getReplay: input.provider?.getReplay ?? baseProvider.getReplay
   };
 
   app.get('/health', (_req, res) => {
@@ -142,6 +163,24 @@ export function createApp(input: CreateAppInput = {}) {
     try {
       const events = await provider.getEvents();
       res.status(200).json({ events });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/replay', async (req, res, next) => {
+    try {
+      const limitRaw = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+      const limit = Number.isFinite(limitRaw) && (limitRaw as number) > 0 ? Math.floor(limitRaw as number) : undefined;
+
+      const replay = await provider.getReplay({
+        limit,
+        eventType: typeof req.query.eventType === 'string' ? req.query.eventType : undefined,
+        from: typeof req.query.from === 'string' ? req.query.from : undefined,
+        to: typeof req.query.to === 'string' ? req.query.to : undefined
+      });
+
+      res.status(200).json({ replay });
     } catch (error) {
       next(error);
     }

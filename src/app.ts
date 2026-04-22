@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { MetricsRegistry } from './monitoring/metrics-registry';
+import { RuntimeControlPlane } from './runtime/control-plane';
 import { RuntimeStateStore } from './runtime/state-store';
 
 export type ApiDataProvider = {
@@ -15,6 +16,10 @@ export type CreateAppInput = {
   metrics?: MetricsRegistry;
   provider?: Partial<ApiDataProvider>;
   stateStore?: RuntimeStateStore;
+  control?: {
+    plane: RuntimeControlPlane;
+    adminToken: string;
+  };
 };
 
 function buildStateStoreProvider(stateStore: RuntimeStateStore): ApiDataProvider {
@@ -37,10 +42,16 @@ const fallbackProvider: ApiDataProvider = {
   })
 };
 
+function unauthorized(res: express.Response): void {
+  res.status(401).json({ error: 'unauthorized', message: 'invalid admin token' });
+}
+
 export function createApp(input: CreateAppInput = {}) {
   const app = express();
   const startedAt = input.startedAt ?? new Date();
   const metrics = input.metrics ?? new MetricsRegistry();
+
+  app.use(express.json());
 
   const baseProvider = input.stateStore ? buildStateStoreProvider(input.stateStore) : fallbackProvider;
 
@@ -90,7 +101,88 @@ export function createApp(input: CreateAppInput = {}) {
   app.get('/risk', async (_req, res, next) => {
     try {
       const risk = await provider.getRisk();
-      res.status(200).json({ risk });
+      const controlState = input.control?.plane.getState();
+      const status = controlState?.paused ? 'paused' : ((risk.status as string | undefined) ?? 'ok');
+
+      res.status(200).json({
+        risk: {
+          ...risk,
+          status,
+          control: controlState ?? null
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/control/pause', async (req, res, next) => {
+    try {
+      if (!input.control) {
+        res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
+        return;
+      }
+
+      const token = req.header('x-admin-token');
+      if (token !== input.control.adminToken) {
+        unauthorized(res);
+        return;
+      }
+
+      const result = await input.control.plane.pause({
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+        actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined
+      });
+
+      res.status(200).json({ ok: true, command: 'pause', result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/control/resume', async (req, res, next) => {
+    try {
+      if (!input.control) {
+        res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
+        return;
+      }
+
+      const token = req.header('x-admin-token');
+      if (token !== input.control.adminToken) {
+        unauthorized(res);
+        return;
+      }
+
+      const result = await input.control.plane.resume({
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+        actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined
+      });
+
+      res.status(200).json({ ok: true, command: 'resume', result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/control/reset-breaker', async (req, res, next) => {
+    try {
+      if (!input.control) {
+        res.status(404).json({ error: 'not_available', message: 'control plane not configured' });
+        return;
+      }
+
+      const token = req.header('x-admin-token');
+      if (token !== input.control.adminToken) {
+        unauthorized(res);
+        return;
+      }
+
+      const result = await input.control.plane.resetBreaker({
+        reason: typeof req.body?.reason === 'string' ? req.body.reason : undefined,
+        actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined
+      });
+
+      res.status(200).json({ ok: true, command: 'reset-breaker', result });
     } catch (error) {
       next(error);
     }

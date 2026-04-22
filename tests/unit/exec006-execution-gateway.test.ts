@@ -210,6 +210,39 @@ test('LIVE-004: failover crítico deve travar lock até reset explícito e conta
   assert.equal(resetStatus.failoverCount, 1);
 });
 
+test('LIVE-005: reset failover lock deve respeitar cooldown de rearm', async () => {
+  let nowMs = Date.UTC(2026, 3, 22, 11, 15, 0);
+
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    autoFailoverToPaperOnLiveError: true,
+    failoverResetCooldownMs: 60_000,
+    now: () => new Date(nowMs),
+    paperExecutor: async () => ({ fillId: 'paper-fallback', executedPrice: 0.5, executedSize: 10 }),
+    liveExecutor: async () => {
+      throw new Error('critical connector failure');
+    }
+  });
+
+  await assert.rejects(() => gateway.execute(makeIntent()), /critical connector failure/);
+
+  gateway.resetFailoverLock();
+
+  const earlyStatus = gateway.getStatus();
+  assert.equal(earlyStatus.failoverLocked, true);
+  assert.equal(earlyStatus.killSwitch, true);
+  assert.equal(earlyStatus.cooldownRemainingMs, 60_000);
+
+  nowMs += 60_000;
+  gateway.resetFailoverLock();
+
+  const unlockedStatus = gateway.getStatus();
+  assert.equal(unlockedStatus.failoverLocked, false);
+  assert.equal(unlockedStatus.killSwitch, false);
+  assert.equal(unlockedStatus.cooldownRemainingMs, 0);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

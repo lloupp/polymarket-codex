@@ -105,3 +105,63 @@ test('CORE-004: checksum inválido no principal deve forçar restore pelo backup
   const restored = await checkpoint.restore();
   assert.equal(restored?.orders[0]?.orderId, 'o-ok');
 });
+
+test('CORE-005: persist deve salvar envelope com version + writtenAt e manter restore legado', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-meta-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    positions: [{ marketId: 'm-meta', size: 4 }],
+    orders: [{ orderId: 'o-meta', status: 'open' }],
+    signals: [{ signalId: 's-meta', edge: 0.04 }],
+    risk: { status: 'ok', breaker: { tripped: false } }
+  });
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  const snapshot = await store.getSnapshot();
+  await checkpoint.persist(snapshot);
+
+  const persisted = JSON.parse(fs.readFileSync(checkpointPath, 'utf8')) as {
+    version?: number;
+    writtenAt?: string;
+    checksum?: string;
+  };
+
+  assert.equal(persisted.version, 1);
+  assert.equal(typeof persisted.checksum, 'string');
+  assert.equal(typeof persisted.writtenAt, 'string');
+  assert.equal(Number.isNaN(Date.parse(persisted.writtenAt ?? '')), false);
+
+  const legacyPath = path.join(tempDir, 'runtime-checkpoint-legacy.json');
+  fs.writeFileSync(legacyPath, JSON.stringify(snapshot, null, 2));
+
+  const legacyCheckpoint = new RuntimeCheckpointStore({ filePath: legacyPath });
+  const restoredLegacy = await legacyCheckpoint.restore();
+  assert.equal(restoredLegacy?.orders[0]?.orderId, 'o-meta');
+});
+
+test('CORE-005: writtenAt inválido no principal deve usar backup íntegro', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-written-at-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const store = new RuntimeStateStore();
+  await store.updateState({
+    positions: [{ marketId: 'm-written', size: 5 }],
+    orders: [{ orderId: 'o-written', status: 'open' }],
+    signals: [{ signalId: 's-written', edge: 0.05 }],
+    risk: { status: 'ok', breaker: { tripped: false } }
+  });
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath });
+  await checkpoint.persist(await store.getSnapshot());
+
+  const tampered = JSON.parse(fs.readFileSync(checkpointPath, 'utf8')) as {
+    writtenAt?: string;
+  };
+  tampered.writtenAt = 'not-a-date';
+  fs.writeFileSync(checkpointPath, JSON.stringify(tampered, null, 2));
+
+  const restored = await checkpoint.restore();
+  assert.equal(restored?.orders[0]?.orderId, 'o-written');
+});

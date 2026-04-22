@@ -26,7 +26,14 @@ function isRuntimeSnapshot(input: unknown): input is RuntimeSnapshot {
   );
 }
 
+type LegacyCheckpointEnvelope = {
+  snapshot: RuntimeSnapshot;
+  checksum: string;
+};
+
 type CheckpointEnvelope = {
+  version: 1;
+  writtenAt: string;
   snapshot: RuntimeSnapshot;
   checksum: string;
 };
@@ -35,13 +42,27 @@ function checksumForSnapshot(snapshot: RuntimeSnapshot): string {
   return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
 }
 
-function isCheckpointEnvelope(input: unknown): input is CheckpointEnvelope {
+function isLegacyCheckpointEnvelope(input: unknown): input is LegacyCheckpointEnvelope {
   if (typeof input !== 'object' || input === null) {
     return false;
   }
 
   const value = input as Record<string, unknown>;
   return typeof value.checksum === 'string' && isRuntimeSnapshot(value.snapshot);
+}
+
+function isCheckpointEnvelope(input: unknown): input is CheckpointEnvelope {
+  if (typeof input !== 'object' || input === null) {
+    return false;
+  }
+
+  const value = input as Record<string, unknown>;
+  return (
+    value.version === 1 &&
+    typeof value.writtenAt === 'string' &&
+    typeof value.checksum === 'string' &&
+    isRuntimeSnapshot(value.snapshot)
+  );
 }
 
 export class RuntimeCheckpointStore {
@@ -57,6 +78,8 @@ export class RuntimeCheckpointStore {
 
   async persist(snapshot: RuntimeSnapshot): Promise<void> {
     const envelope: CheckpointEnvelope = {
+      version: 1,
+      writtenAt: new Date().toISOString(),
       snapshot,
       checksum: checksumForSnapshot(snapshot)
     };
@@ -80,6 +103,25 @@ export class RuntimeCheckpointStore {
       }
 
       if (isCheckpointEnvelope(parsed)) {
+        if (!Number.isFinite(Date.parse(parsed.writtenAt))) {
+          this.logger?.warn('runtime checkpoint writtenAt invalid; ignoring restore', {
+            filePath: targetPath
+          });
+          return null;
+        }
+
+        const expected = checksumForSnapshot(parsed.snapshot);
+        if (parsed.checksum !== expected) {
+          this.logger?.warn('runtime checkpoint checksum mismatch; ignoring restore', {
+            filePath: targetPath
+          });
+          return null;
+        }
+
+        return parsed.snapshot;
+      }
+
+      if (isLegacyCheckpointEnvelope(parsed)) {
         const expected = checksumForSnapshot(parsed.snapshot);
         if (parsed.checksum !== expected) {
           this.logger?.warn('runtime checkpoint checksum mismatch; ignoring restore', {

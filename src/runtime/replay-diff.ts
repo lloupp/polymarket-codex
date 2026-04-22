@@ -18,6 +18,20 @@ export type ReplayComparison = {
   summaryDiff: ReplaySummaryDiff;
 };
 
+export type ReplayDriftBudget = Partial<Record<keyof ReplaySummaryDiff, number>>;
+
+export type ReplayDriftViolation = {
+  metric: keyof ReplaySummaryDiff;
+  delta: number;
+  budget: number;
+};
+
+export type ReplayDriftEvaluation = {
+  status: 'stable' | 'drifted';
+  violations: ReplayDriftViolation[];
+  warnings: string[];
+};
+
 function diffSummary(baseline: ReplaySummary, candidate: ReplaySummary): ReplaySummaryDiff {
   return {
     totalCyclesDelta: candidate.totalCycles - baseline.totalCycles,
@@ -42,5 +56,37 @@ export function compareReplayReports(input: {
     baselineFingerprint: input.baseline.fingerprint,
     candidateFingerprint: input.candidate.fingerprint,
     summaryDiff
+  };
+}
+
+export function evaluateReplayDrift(input: {
+  comparison: ReplayComparison;
+  budget: ReplayDriftBudget;
+}): ReplayDriftEvaluation {
+  const violations: ReplayDriftViolation[] = [];
+
+  for (const [metric, budgetValue] of Object.entries(input.budget) as Array<
+    [keyof ReplaySummaryDiff, number | undefined]
+  >) {
+    if (budgetValue === undefined) {
+      continue;
+    }
+
+    const allowed = Math.max(0, budgetValue);
+    const delta = input.comparison.summaryDiff[metric];
+    if (Math.abs(delta) > allowed) {
+      violations.push({ metric, delta, budget: allowed });
+    }
+  }
+
+  const warnings: string[] = [];
+  if (!input.comparison.equivalent) {
+    warnings.push('fingerprint mismatch between baseline and candidate');
+  }
+
+  return {
+    status: violations.length === 0 ? 'stable' : 'drifted',
+    violations,
+    warnings
   };
 }

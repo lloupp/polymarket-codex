@@ -25,7 +25,9 @@ export type ExecutionGatewayConfig = {
   liveEnabled: boolean;
   killSwitch?: boolean;
   autoFailoverToPaperOnLiveError?: boolean;
+  failoverResetCooldownMs?: number;
   isCriticalLiveError?: (error: unknown) => boolean;
+  now?: () => Date;
   paperExecutor: ExecutionFn;
   liveExecutor: ExecutionFn;
 };
@@ -37,6 +39,7 @@ export type ExecutionGatewayStatus = {
   killSwitch: boolean;
   failoverLocked: boolean;
   failoverCount: number;
+  cooldownRemainingMs: number;
   blockedReason?: 'live_not_enabled' | 'kill_switch_forced_paper' | 'auto_failover_live_error';
   lastFailoverAt?: string;
   lastFailoverReason?: string;
@@ -48,6 +51,8 @@ export class ExecutionGateway {
   private killSwitch: boolean;
   private failoverLocked: boolean;
   private failoverCount: number;
+  private readonly failoverResetCooldownMs: number;
+  private readonly now: () => Date;
   private readonly paperExecutor: ExecutionFn;
   private readonly liveExecutor: ExecutionFn;
   private readonly autoFailoverToPaperOnLiveError: boolean;
@@ -62,6 +67,8 @@ export class ExecutionGateway {
     this.killSwitch = config.killSwitch ?? false;
     this.failoverLocked = false;
     this.failoverCount = 0;
+    this.failoverResetCooldownMs = Math.max(0, config.failoverResetCooldownMs ?? 0);
+    this.now = config.now ?? (() => new Date());
     this.paperExecutor = config.paperExecutor;
     this.liveExecutor = config.liveExecutor;
     this.autoFailoverToPaperOnLiveError = config.autoFailoverToPaperOnLiveError ?? false;
@@ -92,11 +99,29 @@ export class ExecutionGateway {
       return;
     }
 
+    if (this.getCooldownRemainingMs() > 0) {
+      return;
+    }
+
     this.failoverLocked = false;
     this.killSwitch = false;
     if (this.lastBlockedReason === 'auto_failover_live_error') {
       this.lastBlockedReason = undefined;
     }
+  }
+
+  private getCooldownRemainingMs(): number {
+    if (!this.failoverLocked || !this.lastFailoverAt) {
+      return 0;
+    }
+
+    const failoverAtMs = Date.parse(this.lastFailoverAt);
+    if (!Number.isFinite(failoverAtMs)) {
+      return 0;
+    }
+
+    const elapsed = this.now().getTime() - failoverAtMs;
+    return Math.max(0, this.failoverResetCooldownMs - elapsed);
   }
 
   async execute(intent: ExecutionIntent): Promise<ExecutionResult> {
@@ -121,7 +146,7 @@ export class ExecutionGateway {
           this.failoverLocked = true;
           this.failoverCount += 1;
           this.lastBlockedReason = 'auto_failover_live_error';
-          this.lastFailoverAt = new Date().toISOString();
+          this.lastFailoverAt = this.now().toISOString();
           this.lastFailoverReason = error instanceof Error ? error.message : String(error);
         }
         throw error;
@@ -132,6 +157,8 @@ export class ExecutionGateway {
   }
 
   getStatus(): ExecutionGatewayStatus {
+    const cooldownRemainingMs = this.getCooldownRemainingMs();
+
     if (this.lastBlockedReason === 'live_not_enabled') {
       return {
         configuredMode: this.mode,
@@ -140,6 +167,7 @@ export class ExecutionGateway {
         killSwitch: this.killSwitch,
         failoverLocked: this.failoverLocked,
         failoverCount: this.failoverCount,
+        cooldownRemainingMs,
         blockedReason: this.lastBlockedReason,
         lastFailoverAt: this.lastFailoverAt,
         lastFailoverReason: this.lastFailoverReason
@@ -154,6 +182,7 @@ export class ExecutionGateway {
         killSwitch: this.killSwitch,
         failoverLocked: this.failoverLocked,
         failoverCount: this.failoverCount,
+        cooldownRemainingMs,
         blockedReason: this.lastBlockedReason ?? 'kill_switch_forced_paper',
         lastFailoverAt: this.lastFailoverAt,
         lastFailoverReason: this.lastFailoverReason
@@ -167,6 +196,7 @@ export class ExecutionGateway {
       killSwitch: this.killSwitch,
       failoverLocked: this.failoverLocked,
       failoverCount: this.failoverCount,
+      cooldownRemainingMs,
       blockedReason: this.lastBlockedReason,
       lastFailoverAt: this.lastFailoverAt,
       lastFailoverReason: this.lastFailoverReason

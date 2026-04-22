@@ -177,3 +177,78 @@ export function formatReplayGateSummary(decision: ReplayGateDecision): string {
     `warnings=${decision.warnings.length}`
   ].join(' ');
 }
+
+export type ParsedReplayGateSummary = {
+  severity: ReplayGateSeverity;
+  accepted: boolean;
+  reason: ReplayGateDecisionReason;
+  driftScore: number;
+  violations: number;
+  warnings: number;
+};
+
+export function parseReplayGateSummary(summary: string): ParsedReplayGateSummary {
+  const parts = summary.trim().split(/\s+/);
+  const map: Record<string, string> = {};
+
+  for (const part of parts) {
+    const eqIndex = part.indexOf('=');
+    if (eqIndex <= 0 || eqIndex === part.length - 1) {
+      throw new Error('invalid replay gate summary');
+    }
+    const key = part.slice(0, eqIndex);
+    const value = part.slice(eqIndex + 1);
+    map[key] = value;
+  }
+
+  const severity = map.severity;
+  const accepted = map.accepted;
+  const reason = map.reason;
+  const driftScoreRaw = map.driftScore;
+  const violationsRaw = map.violations;
+  const warningsRaw = map.warnings;
+
+  if (
+    !severity ||
+    !accepted ||
+    !reason ||
+    driftScoreRaw === undefined ||
+    violationsRaw === undefined ||
+    warningsRaw === undefined
+  ) {
+    throw new Error('invalid replay gate summary');
+  }
+
+  if (severity !== 'pass' && severity !== 'warn' && severity !== 'fail') {
+    throw new Error('invalid replay gate summary');
+  }
+
+  if (
+    reason !== 'stable_and_within_threshold' &&
+    reason !== 'within_max_but_above_warn_threshold' &&
+    reason !== 'drift_score_exceeded_max_threshold'
+  ) {
+    throw new Error('invalid replay gate summary');
+  }
+
+  if (accepted !== 'true' && accepted !== 'false') {
+    throw new Error('invalid replay gate summary');
+  }
+
+  const driftScore = Number(driftScoreRaw);
+  const violations = Number(violationsRaw);
+  const warnings = Number(warningsRaw);
+
+  if (!Number.isFinite(driftScore) || !Number.isInteger(violations) || !Number.isInteger(warnings)) {
+    throw new Error('invalid replay gate summary');
+  }
+
+  return {
+    severity,
+    accepted: accepted === 'true',
+    reason,
+    driftScore,
+    violations,
+    warnings
+  };
+}

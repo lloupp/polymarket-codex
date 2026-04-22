@@ -331,6 +331,22 @@ test('LIVE-008: setManualPaperOverride deve sanitizar reason e rejeitar valor va
   assert.throws(() => gateway.setManualPaperOverride('   '), /manual override reason cannot be empty/i);
 });
 
+test('LIVE-009: setManualPaperOverride deve rejeitar reason sanitizada acima do limite', async () => {
+  const gateway = new ExecutionGateway({
+    mode: 'live',
+    liveEnabled: true,
+    paperExecutor: async () => ({ fillId: 'paper', executedPrice: 0.5, executedSize: 10 }),
+    liveExecutor: async () => ({ fillId: 'live', executedPrice: 0.51, executedSize: 10 })
+  });
+
+  const validReason = 'x'.repeat(120);
+  gateway.setManualPaperOverride(validReason);
+  assert.equal(gateway.getStatus().manualPaperOverrideReason, validReason);
+
+  const tooLongReason = ` ${'x'.repeat(121)} `;
+  assert.throws(() => gateway.setManualPaperOverride(tooLongReason), /manual override reason too long/i);
+});
+
 test('EXEC-006: integração com orquestrador deve manter fluxo atual em paper mode', async () => {
   const gateway = new ExecutionGateway({
     mode: 'paper',

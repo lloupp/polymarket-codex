@@ -6,7 +6,8 @@ import {
   evaluateReplayDrift,
   evaluateReplayGateDecision,
   formatReplayGateSummary,
-  isReplayWithinGate
+  isReplayWithinGate,
+  parseReplayGateSummary
 } from '../../src/runtime/replay-diff';
 import type { ReplayReport } from '../../src/runtime/orchestrator-replay-runner';
 
@@ -308,4 +309,40 @@ test('BT-007: formatReplayGateSummary deve gerar saída determinística para pas
     formatReplayGateSummary(failDecision),
     'severity=fail accepted=false reason=drift_score_exceeded_max_threshold driftScore=8.000 violations=2 warnings=1'
   );
+});
+
+test('BT-008: parseReplayGateSummary deve parsear saída formatada de forma determinística', () => {
+  const decision = evaluateReplayGateDecision({
+    comparison: compareReplayReports({
+      baseline: makeReport(),
+      candidate: makeReport({
+        fingerprint: 'fp-parse-summary',
+        summary: {
+          ...makeReport().summary,
+          ordersFilled: 5,
+          ordersFailed: 1
+        }
+      })
+    }),
+    budget: {
+      ordersFilledDelta: 1,
+      ordersFailedDelta: 1
+    },
+    maxDriftScore: 3,
+    warnDriftScore: 1
+  });
+
+  const summary = formatReplayGateSummary(decision);
+  const parsed = parseReplayGateSummary(summary);
+
+  assert.equal(parsed.severity, 'warn');
+  assert.equal(parsed.accepted, true);
+  assert.equal(parsed.reason, 'within_max_but_above_warn_threshold');
+  assert.equal(parsed.driftScore, 2);
+  assert.equal(parsed.violations, 0);
+  assert.equal(parsed.warnings, 1);
+});
+
+test('BT-008: parseReplayGateSummary deve falhar com payload inválido', () => {
+  assert.throws(() => parseReplayGateSummary('severity=ok accepted=maybe'), /invalid replay gate summary/i);
 });

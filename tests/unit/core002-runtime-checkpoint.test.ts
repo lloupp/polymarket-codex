@@ -290,3 +290,32 @@ test('CORE-008: getRestoreHistory(limit) deve tratar limites inválidos de forma
   assert.equal(checkpoint.getRestoreHistory(0).length, 0);
   assert.equal(checkpoint.getRestoreHistory(1.9).length, 1);
 });
+
+test('CORE-009: deve respeitar maxRestoreHistorySize configurado', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-history-capacity-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath, maxRestoreHistorySize: 2 });
+
+  await checkpoint.restore();
+  await checkpoint.restore();
+  await checkpoint.restore();
+
+  const history = checkpoint.getRestoreHistory();
+  assert.equal(history.length, 2);
+  assert.equal(history[0]?.reason, 'no_checkpoint_available');
+  assert.equal(history[1]?.reason, 'no_checkpoint_available');
+});
+
+test('CORE-009: maxRestoreHistorySize inválido deve cair para default seguro', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poly-checkpoint-restore-history-capacity-fallback-'));
+  const checkpointPath = path.join(tempDir, 'runtime-checkpoint.json');
+
+  const checkpoint = new RuntimeCheckpointStore({ filePath: checkpointPath, maxRestoreHistorySize: 0 });
+
+  await checkpoint.restore();
+  await checkpoint.restore();
+  await checkpoint.restore();
+
+  assert.equal(checkpoint.getRestoreHistory().length, 3);
+});

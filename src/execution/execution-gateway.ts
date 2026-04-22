@@ -113,6 +113,9 @@ export class ExecutionGateway {
     if (sanitizedReason.length === 0) {
       throw new Error('manual override reason cannot be empty');
     }
+    if (sanitizedReason.length > 120) {
+      throw new Error('manual override reason too long');
+    }
 
     this.manualPaperOverride = true;
     this.manualPaperOverrideReason = sanitizedReason;

@@ -6,6 +6,7 @@ import type { RuntimeSnapshot } from './state-store';
 
 export type RuntimeCheckpointStoreConfig = {
   filePath: string;
+  maxRestoreHistorySize?: number;
   logger?: { warn: (message: string, context?: Record<string, unknown>) => void };
 };
 
@@ -88,7 +89,9 @@ export class RuntimeCheckpointStore {
     this.logger = config.logger;
     this.lastRestoreMeta = { source: 'none', reason: 'no_checkpoint_available' };
     this.restoreHistory = [];
-    this.maxRestoreHistorySize = 50;
+
+    const normalizedCapacity = Math.floor(config.maxRestoreHistorySize ?? 50);
+    this.maxRestoreHistorySize = Number.isFinite(normalizedCapacity) && normalizedCapacity > 0 ? normalizedCapacity : 50;
   }
 
   async persist(snapshot: RuntimeSnapshot): Promise<void> {

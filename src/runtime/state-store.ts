@@ -22,6 +22,16 @@ export class RuntimeStateStore {
     updatedAt: new Date().toISOString()
   };
 
+  async replaceSnapshot(snapshot: RuntimeSnapshot): Promise<void> {
+    this.snapshot = {
+      positions: [...snapshot.positions],
+      orders: [...snapshot.orders],
+      signals: [...snapshot.signals],
+      risk: { ...snapshot.risk },
+      updatedAt: snapshot.updatedAt
+    };
+  }
+
   async updateState(update: RuntimeStateUpdate): Promise<void> {
     this.snapshot = {
       positions: update.positions ?? this.snapshot.positions,

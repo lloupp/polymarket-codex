@@ -1,4 +1,4 @@
-export type IncidentType = 'breaker' | 'ws_down' | 'critical_error' | 'staleness';
+export type IncidentType = 'breaker' | 'ws_down' | 'critical_error' | 'staleness' | 'slo_degradation';
 
 export type AlertSeverity = 'critical' | 'warning';
 
@@ -30,7 +30,7 @@ export class AlertingService {
   }
 
   async notify(input: IncidentAlertInput): Promise<void> {
-    const warningIncidents: IncidentType[] = ['ws_down', 'staleness'];
+    const warningIncidents: IncidentType[] = ['ws_down', 'staleness', 'slo_degradation'];
 
     const payload: IncidentAlertPayload = {
       source: 'polymarket-codex',

@@ -112,3 +112,19 @@ Registrar:
 - ações tomadas
 - validação pós-correção
 - responsável
+
+
+## 6) SLO operacional (MON-004)
+
+Thresholds iniciais para piloto limitado:
+- erro de execução (`1 - fillRate`)
+  - warning: `>= 0.20`
+  - critical: `>= 0.40`
+- latência média de ordem (`avgOrderLatencyMs`)
+  - warning: `>= 1500ms`
+  - critical: `>= 3000ms`
+- módulos stale (`staleModulesTotal`)
+  - warning: `>= 1`
+  - critical: `>= 2`
+
+Histerese: alerta só após 2 avaliações consecutivas fora do SLO e repetição a cada 3 avaliações no mesmo estado.

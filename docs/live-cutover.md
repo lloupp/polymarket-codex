@@ -35,6 +35,8 @@ Executar transição controlada de paper para live limitado com rollback imediat
 
 ## Janelas de monitoramento
 
+SLO evaluator (MON-004) deve rodar continuamente durante as janelas para classificar `ok | degraded | critical`.
+
 ### Janela A — 0 a 10 min
 - SLO de erro de execução < 5%
 - Sem acionamento de breaker por erro consecutivo
@@ -75,3 +77,10 @@ Abortar imediatamente e retornar para paper se ocorrer qualquer item:
 - Qualquer critério de abort foi acionado
 - Métricas não convergiram para baseline esperado
 - Persistem alertas críticos no watchdog
+
+
+## Resposta a degradação SLO
+
+- Se `degraded` persistir por duas avaliações consecutivas: abrir incidente e reduzir agressividade de execução.
+- Se `critical`: acionar `POST /control/pause`, ativar kill-switch e iniciar rollback para paper.
+- Registrar replay (`GET /replay`) para postmortem com janela do incidente.
